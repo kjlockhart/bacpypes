@@ -151,12 +151,12 @@ class Sequence(object):
                     # empty list
                     setattr(self, element.name, [])
                 else:
-                    raise AttributeError("'%s' is a required element of %s" % (element.name,self.__class__.__name__))
+                    raise AttributeError("'%s' is a required element of %s" % (element.name, self.__class__.__name__))
 
             # we have been enclosed in a context
             elif tag.tagClass == Tag.closingTagClass:
                 if not element.optional:
-                    raise AttributeError("'%s' is a required element of %s" % (element.name,self.__class__.__name__))
+                    raise AttributeError("'%s' is a required element of %s" % (element.name, self.__class__.__name__))
 
                 # omitted optional element
                 setattr(self, element.name, None)
