@@ -12,7 +12,10 @@ except ImportError:
 
 # different source folders
 version_info = sys.version_info[:2]
-source_folder = "py" + str(version_info[0]) + str(version_info[1])
+if version_info[0] < 3:
+    source_folder = "py{}{}".format(str(version_info[0]), str(version_info[1]))
+else:
+    source_folder = "py30"
 if not os.path.exists(source_folder):
     raise EnvironmentError(
         "unsupported version of Python, looking for " +
