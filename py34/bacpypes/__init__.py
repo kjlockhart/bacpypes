@@ -25,7 +25,6 @@ __email__ = 'joel@carrickbender.com'
 #
 #   Communications Core Modules
 #
-
 from . import comm
 from . import task
 from . import singleton

@@ -1,21 +1,30 @@
 #!/usr/bin/python
 
 """
-IOCB Module
+IOCB Module - I/O Control Block
+
+The interface between the BACnet stack and the caller application.
+
 """
 
+#--- standard Python modules ---
 import sys
 import logging
-from time import time as _time
-
 import threading
+
+from time import time as _time
 from bisect import bisect_left
 
+#--- 3rd party modules ---
+
+#--- this application's modules ---
 from .debugging import bacpypes_debugging, ModuleLogger, DebugContents
 
 from .core import deferred
 from .task import FunctionTask
 from .comm import Client
+
+#------------------------------------------------------------------------------
 
 # some debugging
 _debug = 0
@@ -63,6 +72,8 @@ TimeoutError = RuntimeError("timeout")
 # current time formatting (short version)
 _strftime = lambda: "%011.6f" % (_time() % 3600,)
 
+
+#------------------------------------------------------------------------------
 #
 #   IOCB - Input Output Control Block
 #
@@ -83,23 +94,16 @@ class IOCB(DebugContents):
     def __init__(self, *args, **kwargs):
         global _identNext
 
-        # lock the identity sequence number
-        _identLock.acquire()
-
-        # generate a unique identity for this block
-        ioID = _identNext
+        _identLock.acquire()            # lock the identity sequence number
+        ioID = _identNext               # generate a unique identity for this block
         _identNext += 1
-
-        # release the lock
-        _identLock.release()
+        _identLock.release()            # release the lock
 
         # debugging postponed until ID acquired
         if _debug: IOCB._debug("__init__(%d) %r %r", ioID, args, kwargs)
 
-        # save the ID
+        # save the assigned ID and request parameters
         self.ioID = ioID
-
-        # save the request parameters
         self.args = args
         self.kwargs = kwargs
 
@@ -129,6 +133,7 @@ class IOCB(DebugContents):
 
         # request has no timeout
         self.ioTimeout = None
+
 
     def add_callback(self, fn, *args, **kwargs):
         """Pass a function to be called when IO is complete."""

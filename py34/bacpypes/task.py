@@ -1,16 +1,21 @@
 #!/usr/bin/python
-
 """
 Task
 """
 
+#--- standard Python modules ---
 import sys
 
 from time import time as _time
 from heapq import heapify, heappush, heappop
 
+#--- 3rd party modules ---
+
+#--- this application's modules ---
 from .singleton import SingletonLogging
 from .debugging import DebugContents, Logging, ModuleLogger, bacpypes_debugging
+
+#------------------------------------------------------------------------------
 
 # some debugging
 _debug = 0
@@ -42,6 +47,8 @@ if sys.platform in ('linux', 'darwin'):
 else:
     _Trigger = None
 
+
+#------------------------------------------------------------------------------
 #
 #   _Task
 #
@@ -97,6 +104,7 @@ class _Task(DebugContents, Logging):
     def __lt__(self, other):
         return id(self) < id(other)
 
+#------------------------------------------------------------------------------
 #
 #   OneShotTask
 #
@@ -140,6 +148,8 @@ def OneShotFunction(fn, *args, **kwargs):
 
     return task
 
+
+#------------------------------------------------------------------------------
 #
 #   FunctionTask
 #
@@ -158,6 +168,7 @@ def FunctionTask(fn, *args, **kwargs):
 
     return task
 
+#------------------------------------------------------------------------------
 #
 #   RecurringTask
 #
@@ -242,6 +253,8 @@ def recurring_function(interval):
 
     return recurring_function_decorator
 
+
+#------------------------------------------------------------------------------
 #
 #   TaskManager
 #

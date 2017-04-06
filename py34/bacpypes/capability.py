@@ -1,10 +1,15 @@
 #!/usr/bin/python
-
 """
 Capability
 """
 
+#--- standard Python modules ---
+#--- 3rd party modules ---
+
+#--- this application's modules ---
 from .debugging import bacpypes_debugging, ModuleLogger
+
+#------------------------------------------------------------------------------
 
 # some debugging
 _debug = 0
@@ -22,6 +27,8 @@ class Capability(object):
     def __init__(self):
         if _debug: Capability._debug("__init__")
 
+
+#------------------------------------------------------------------------------
 #
 #   Collector
 #

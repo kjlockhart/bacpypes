@@ -3,18 +3,23 @@
 """
 Singleton
 
-This module defines a "super singleton" class that verifies only once instance
+Define a "super singleton" class that verifies only once instance of the class 
 is actually created.  It allows the class designating itself as a singleton to
-be inherited, still retains its singletoness, but makes sure that derived classes
-aren't created first.
+be inherited, still retaining its singleton-ness, but it ensures that derived classes
+are not created first.
 
 Test classes A -> B -> C where A is a singleton.  B can be created before A, and
 calls for A will return the instance of B.  But if B is created, C cannot be created,
 since a new C would imply a new instance of B.
 """
 
+#--- standard Python modules ---
+#--- 3rd party modules ---
+
+#--- this application's modules ---
 from . import debugging
 
+#------------------------------------------------------------------------------
 #
 #   _SingletonMetaclass
 #

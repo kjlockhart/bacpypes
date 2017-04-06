@@ -1,15 +1,19 @@
 #!/usr/bin/python
-
 """
 Communications Module
 """
-
+#--- standard Python modules ---
 import sys
 import struct
 from copy import copy as _copy
 
+#--- 3rd party modules ---
+
+#--- this application's modules ---
 from .errors import DecodingError, ConfigurationError
 from .debugging import ModuleLogger, DebugContents, bacpypes_debugging, btox
+
+#------------------------------------------------------------------------------
 
 # some debugging
 _debug = 0
@@ -27,10 +31,10 @@ server_map = {}
 service_map = {}
 element_map = {}
 
-
-#
-#   PCI
-#
+#------------------------------------------------------------------------------
+'''
+    PCI - Protocol Control Information
+'''
 
 @bacpypes_debugging
 class PCI(DebugContents):
@@ -46,6 +50,7 @@ class PCI(DebugContents):
         for element in ('user_data', 'source', 'destination'):
             if element in kwargs:
                 my_kwargs[element] = kwargs[element]
+
         for kw in kwargs:
             if kw not in my_kwargs:
                 other_kwargs[kw] = kwargs[kw]
@@ -60,11 +65,13 @@ class PCI(DebugContents):
         self.pduSource = my_kwargs.get('source', None)
         self.pduDestination = my_kwargs.get('destination', None)
 
+
     def update(self, pci):
         """Copy the PCI fields."""
         self.pduUserData = pci.pduUserData
         self.pduSource = pci.pduSource
         self.pduDestination = pci.pduDestination
+
 
     def pci_contents(self, use_dict=None, as_class=dict):
         """Return the contents of an object as a dict."""
@@ -87,15 +94,18 @@ class PCI(DebugContents):
         # return what we built/updated
         return use_dict
 
+
     def dict_contents(self, use_dict=None, as_class=dict):
         """Return the contents of an object as a dict."""
         if _debug: PCI._debug("dict_contents use_dict=%r as_class=%r", use_dict, as_class)
 
         return self.pci_contents(use_dict=use_dict, as_class=as_class)
 
-#
-#   PDUData
-#
+
+#------------------------------------------------------------------------------
+'''
+    PDUData - Protocol Data Unit Data
+'''
 
 @bacpypes_debugging
 class PDUData(object):
@@ -116,6 +126,7 @@ class PDUData(object):
             self.pduData = _copy(data.pduData)
         else:
             raise TypeError("bytes or bytearray expected")
+
 
     def get(self):
         if len(self.pduData) == 0:
@@ -141,6 +152,7 @@ class PDUData(object):
     def get_long(self):
         return struct.unpack('>L',self.get_data(4))[0]
 
+
     def put(self, n):
         # pduData is a bytearray
         self.pduData += bytes([n])
@@ -164,6 +176,7 @@ class PDUData(object):
     def put_long(self, n):
         self.pduData += struct.pack('>L',n & _long_mask)
 
+
     def debug_contents(self, indent=1, file=sys.stdout, _ids=None):
         if isinstance(self.pduData, bytearray):
             if len(self.pduData) > 20:
@@ -173,6 +186,7 @@ class PDUData(object):
             file.write("%spduData = x'%s'\n" % ('    ' * indent, hexed))
         else:
             file.write("%spduData = %r\n" % ('    ' * indent, self.pduData))
+
 
     def pdudata_contents(self, use_dict=None, as_class=dict):
         """Return the contents of an object as a dict."""
@@ -194,15 +208,18 @@ class PDUData(object):
         # return what we built/updated
         return use_dict
 
+
     def dict_contents(self, use_dict=None, as_class=dict):
         """Return the contents of an object as a dict."""
         if _debug: PDUData._debug("dict_contents use_dict=%r as_class=%r", use_dict, as_class)
 
         return self.pdudata_contents(use_dict=use_dict, as_class=as_class)
 
-#
-#   PDU
-#
+
+#------------------------------------------------------------------------------
+'''
+    PDU - Protocol Data Unit
+'''
 
 @bacpypes_debugging
 class PDU(PCI, PDUData):
@@ -249,9 +266,11 @@ class PDU(PCI, PDUData):
         # return what we built/updated
         return use_dict
 
-#
-#   Client
-#
+
+#------------------------------------------------------------------------------
+'''
+    Client
+'''
 
 @bacpypes_debugging
 class Client:
@@ -284,9 +303,12 @@ class Client:
     def confirmation(self, *args, **kwargs):
         raise NotImplementedError("confirmation must be overridden")
 
-#
-#   Server
-#
+
+#------------------------------------------------------------------------------
+'''
+    Server
+'''
+
 
 @bacpypes_debugging
 class Server:
@@ -319,9 +341,11 @@ class Server:
             raise ConfigurationError("unbound server")
         self.serverPeer.confirmation(*args, **kwargs)
 
-#
-#   Debug
-#
+
+#------------------------------------------------------------------------------
+'''
+    Debug
+'''
 
 @bacpypes_debugging
 class Debug(Client, Server):
@@ -334,6 +358,7 @@ class Debug(Client, Server):
 
         # save the label
         self.label = label
+
 
     def confirmation(self, *args, **kwargs):
         print("Debug({!s}).confirmation".format(self.label))
@@ -349,6 +374,7 @@ class Debug(Client, Server):
         if self.serverPeer:
             self.response(*args, **kwargs)
 
+
     def indication(self, *args, **kwargs):
         print("Debug({!s}).indication".format(self.label))
         for i, arg in enumerate(args):
@@ -363,9 +389,11 @@ class Debug(Client, Server):
         if self.clientPeer:
             self.request(*args, **kwargs)
 
-#
-#   Echo
-#
+
+#------------------------------------------------------------------------------
+'''
+    Echo
+'''
 
 @bacpypes_debugging
 class Echo(Client, Server):
@@ -376,23 +404,26 @@ class Echo(Client, Server):
         Client.__init__(self, cid)
         Server.__init__(self, sid)
 
+
     def confirmation(self, *args, **kwargs):
         if _debug: Echo._debug("confirmation %r %r", args, kwargs)
 
         self.request(*args, **kwargs)
+
 
     def indication(self, *args, **kwargs):
         if _debug: Echo._debug("indication %r %r", args, kwargs)
 
         self.response(*args, **kwargs)
 
-#
-#   ServiceAccessPoint
-#
-#   Note that the SAP functions have been renamed so a derived class
-#   can inherit from both Client, Service, and ServiceAccessPoint
-#   at the same time.
-#
+
+#------------------------------------------------------------------------------
+'''
+    ServiceAccessPoint (SAP)
+    
+    Note: the SAP functions are named as such so a derived class can inherit from 
+        both Client, Service, and ServiceAccessPoint at the same time.
+'''
 
 @bacpypes_debugging
 class ServiceAccessPoint:
@@ -416,6 +447,7 @@ class ServiceAccessPoint:
 
                 bind(element, self)
 
+
     def sap_request(self, *args, **kwargs):
         if _debug: ServiceAccessPoint._debug("sap_request(%s) %r %r", self.serviceID, args, kwargs)
 
@@ -423,8 +455,10 @@ class ServiceAccessPoint:
             raise ConfigurationError("unbound service access point")
         self.serviceElement.indication(*args, **kwargs)
 
+
     def sap_indication(self, *args, **kwargs):
         raise NotImplementedError("sap_indication must be overridden")
+
 
     def sap_response(self, *args, **kwargs):
         if _debug: ServiceAccessPoint._debug("sap_response(%s) %r %r", self.serviceID, args, kwargs)
@@ -433,12 +467,15 @@ class ServiceAccessPoint:
             raise ConfigurationError("unbound service access point")
         self.serviceElement.confirmation(*args,**kwargs)
 
+
     def sap_confirmation(self, *args, **kwargs):
         raise NotImplementedError("sap_confirmation must be overridden")
 
-#
-#   ApplicationServiceElement
-#
+
+#------------------------------------------------------------------------------
+'''
+    ApplicationServiceElement
+'''
 
 @bacpypes_debugging
 class ApplicationServiceElement:
@@ -462,6 +499,7 @@ class ApplicationServiceElement:
 
                 bind(self, service)
 
+
     def request(self, *args, **kwargs):
         if _debug: ApplicationServiceElement._debug("request(%s) %r %r", self.elementID, args, kwargs)
 
@@ -470,8 +508,10 @@ class ApplicationServiceElement:
 
         self.elementService.sap_indication(*args, **kwargs)
 
+
     def indication(self, *args, **kwargs):
         raise NotImplementedError("indication must be overridden")
+
 
     def response(self, *args, **kwargs):
         if _debug: ApplicationServiceElement._debug("response(%s) %r %r", self.elementID, args, kwargs)
@@ -481,12 +521,15 @@ class ApplicationServiceElement:
 
         self.elementService.sap_confirmation(*args,**kwargs)
 
+
     def confirmation(self, *args, **kwargs):
         raise NotImplementedError("confirmation must be overridden")
 
-#
-#   NullServiceElement
-#
+
+#------------------------------------------------------------------------------
+'''
+    NullServiceElement
+'''
 
 class NullServiceElement(ApplicationServiceElement):
 
@@ -496,9 +539,11 @@ class NullServiceElement(ApplicationServiceElement):
     def confirmation(self, *args, **kwargs):
         pass
 
-#
-#   DebugServiceElement
-#
+
+#------------------------------------------------------------------------------
+'''
+    DebugServiceElement
+'''
 
 class DebugServiceElement(ApplicationServiceElement):
 
@@ -512,9 +557,11 @@ class DebugServiceElement(ApplicationServiceElement):
         print("    - args: {!r}".format(args))
         print("    - kwargs: {!r}".format(kwargs))
 
-#
-#   bind
-#
+
+#------------------------------------------------------------------------------
+'''
+    bind - join clients and servers together
+'''
 
 @bacpypes_debugging
 def bind(*args):
