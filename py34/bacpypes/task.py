@@ -84,8 +84,10 @@ class _Task(DebugContents, Logging):
         else:
             _task_manager.install_task(self)
 
+
     def process_task(self):
         raise RuntimeError("process_task must be overridden")
+
 
     def suspend_task(self):
         global _task_manager
@@ -96,10 +98,12 @@ class _Task(DebugContents, Logging):
         else:
             _task_manager.suspend_task(self)
 
+
     def resume_task(self):
         global _task_manager
 
         _task_manager.resume_task(self)
+
 
     def __lt__(self, other):
         return id(self) < id(other)
@@ -273,7 +277,6 @@ class TaskManager(SingletonLogging):
         else:
             self.trigger = None
 
-        # task manager is this instance
         _task_manager = self
 
         # there may be tasks created that couldn't be scheduled
@@ -282,21 +285,19 @@ class TaskManager(SingletonLogging):
             for task in _unscheduled_tasks:
                 task.install_task()
 
-    def get_time(self):
-        if _debug: TaskManager._debug("get_time")
 
-        # return the real time
+    def get_time(self):
         return _time()
+
 
     def install_task(self, task):
         if _debug: TaskManager._debug("install_task %r @ %r", task, task.taskTime)
 
-        # if the taskTime is None is hasn't been computed correctly
         if task.taskTime is None:
+            # if the taskTime is None it hasn't been computed correctly
             raise RuntimeError("task time is None")
 
-        # if this is already installed, suspend it
-        if task.isScheduled:
+        if task.isScheduled:                    # if this is already installed, suspend it
             self.suspend_task(task)
 
         # save this in the task list
@@ -304,10 +305,9 @@ class TaskManager(SingletonLogging):
         if _debug: TaskManager._debug("    - tasks: %r", self.tasks)
 
         task.isScheduled = True
-
-        # trigger the event
         if self.trigger:
             self.trigger.set()
+
 
     def suspend_task(self, task):
         if _debug: TaskManager._debug("suspend_task %r", task)
@@ -324,15 +324,15 @@ class TaskManager(SingletonLogging):
         else:
             if _debug: TaskManager._debug("    - task not found")
 
-        # trigger the event
         if self.trigger:
             self.trigger.set()
+
 
     def resume_task(self, task):
         if _debug: TaskManager._debug("resume_task %r", task)
 
-        # just re-install it
-        self.install_task(task)
+        self.install_task(task)                 # just re-install it
+
 
     def get_next_task(self):
         """get the next task if there's one that should be processed,
@@ -340,9 +340,7 @@ class TaskManager(SingletonLogging):
         processed."""
         if _debug: TaskManager._debug("get_next_task")
 
-        # get the time
         now = _time()
-
         task = None
         delta = None
 
@@ -365,10 +363,10 @@ class TaskManager(SingletonLogging):
         # return the task to run and how long to wait for the next one
         return (task, delta)
 
+
     def process_task(self, task):
         if _debug: TaskManager._debug("process_task %r", task)
 
-        # process the task
         task.process_task()
 
         # see if it should be rescheduled

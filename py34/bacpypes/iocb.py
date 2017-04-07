@@ -102,28 +102,21 @@ class IOCB(DebugContents):
         # debugging postponed until ID acquired
         if _debug: IOCB._debug("__init__(%d) %r %r", ioID, args, kwargs)
 
-        # save the assigned ID and request parameters
-        self.ioID = ioID
+        self.ioID = ioID                        # save the assigned ID and request parameters
         self.args = args
         self.kwargs = kwargs
 
-        # start with an idle request
-        self.ioState = IDLE
+        self.ioState = IDLE                     # start with an idle request
         self.ioResponse = None
         self.ioError = None
 
-        # blocks are bound to a controller
-        self.ioController = None
+        self.ioController = None                # blocks are bound to a controller
 
-        # each block gets a completion event
-        self.ioComplete = threading.Event()
+        self.ioComplete = threading.Event()     # each block gets a completion event
         self.ioComplete.clear()
 
-        # applications can set a callback functions
-        self.ioCallback = []
-
-        # request is not currently queued
-        self.ioQueue = None
+        self.ioCallback = []                    # applications can set callback functions
+        self.ioQueue = None                     # request is not currently queued
 
         # extract the priority if it was given
         self.ioPriority = kwargs.get('_priority', 0)
@@ -131,20 +124,17 @@ class IOCB(DebugContents):
             if _debug: IOCB._debug("    - ioPriority: %r", self.ioPriority)
             del kwargs['_priority']
 
-        # request has no timeout
-        self.ioTimeout = None
+        self.ioTimeout = None                   # request has no timeout
 
 
     def add_callback(self, fn, *args, **kwargs):
         """Pass a function to be called when IO is complete."""
         if _debug: IOCB._debug("add_callback(%d) %r %r %r", self.ioID, fn, args, kwargs)
 
-        # store it
         self.ioCallback.append((fn, args, kwargs))
-
-        # already complete?
-        if self.ioComplete.isSet():
+        if self.ioComplete.isSet():             # request has no timeout
             self.trigger()
+
 
     def wait(self, *args):
         """Wait for the completion event to be set."""
@@ -153,67 +143,63 @@ class IOCB(DebugContents):
         # waiting from a non-daemon thread could be trouble
         self.ioComplete.wait(*args)
 
+
     def trigger(self):
         """Set the completion event and make the callback(s)."""
         if _debug: IOCB._debug("trigger(%d)", self.ioID)
 
-        # if it's queued, remove it from its queue
-        if self.ioQueue:
+        if self.ioQueue:                        # if it's queued, remove it from its queue
             if _debug: IOCB._debug("    - dequeue")
             self.ioQueue.Remove(self)
 
-        # if there's a timer, cancel it
-        if self.ioTimeout:
+        if self.ioTimeout:                      # if there's a timer, cancel it
             if _debug: IOCB._debug("    - cancel timeout")
             self.ioTimeout.SuspendTask()
 
-        # set the completion event
-        self.ioComplete.set()
+        self.ioComplete.set()                   # set the completion event
 
-        # make the callback(s)
         for fn, args, kwargs in self.ioCallback:
             if _debug: IOCB._debug("    - callback fn: %r %r %r", fn, args, kwargs)
-            fn(self, *args, **kwargs)
+            fn(self, *args, **kwargs)           # call the callback(s)
+
 
     def complete(self, msg):
-        """Called to complete a transaction, usually when ProcessIO has
+        """Complete a transaction, usually called when ProcessIO has
         shipped the IOCB off to some other thread or function."""
         if _debug: IOCB._debug("complete(%d) %r", self.ioID, msg)
 
-        if self.ioController:
-            # pass to controller
+        if self.ioController:                   # pass to controller
             self.ioController.complete_io(self, msg)
         else:
-            # just fill in the data
-            self.ioState = COMPLETED
+            self.ioState = COMPLETED            # just fill in the data
             self.ioResponse = msg
             self.trigger()
+
 
     def abort(self, err):
         """Called by a client to abort a transaction."""
         if _debug: IOCB._debug("abort(%d) %r", self.ioID, err)
 
-        if self.ioController:
-            # pass to controller
+        if self.ioController:                   # pass to controller
             self.ioController.abort_io(self, err)
         elif self.ioState < COMPLETED:
-            # just fill in the data
-            self.ioState = ABORTED
+            self.ioState = ABORTED              # just fill in the data
             self.ioError = err
             self.trigger()
+
 
     def set_timeout(self, delay, err=TimeoutError):
         """Called to set a transaction timer."""
         if _debug: IOCB._debug("set_timeout(%d) %r err=%r", self.ioID, delay, err)
 
-        # if one has already been created, cancel it
         if self.ioTimeout:
-            self.ioTimeout.suspend_task()
+            self.ioTimeout.suspend_task()       # if one has already been created, cancel it
         else:
             self.ioTimeout = FunctionTask(self.Abort, err)
 
         # (re)schedule it
         self.ioTimeout.install_task(_time() + delay)
+
 
     def __repr__(self):
         xid = id(self)
@@ -236,68 +222,52 @@ class IOChainMixIn(DebugContents):
     def __init__(self, iocb):
         if _debug: IOChainMixIn._debug("__init__ %r", iocb)
 
-        # save a refence back to the iocb
-        self.ioChain = iocb
-
-        # set the callback to follow the chain
-        self.add_callback(self.chain_callback)
-
-        # if we're not chained, there's no notification to do
-        if not self.ioChain:
+        self.ioChain = iocb                     # save a refence back to the iocb
+        self.add_callback(self.chain_callback)  # set the callback to follow the chain
+        if not self.ioChain:                    # if we're not chained, there's no notification to do
             return
 
-        # this object becomes its controller
-        iocb.ioController = self
-
-        # consider the parent active
-        iocb.ioState = ACTIVE
+        iocb.ioController = self                # this object becomes its controller
+        iocb.ioState = ACTIVE                   # consider the parent active
 
         try:
             if _debug: IOChainMixIn._debug("    - encoding")
 
-            # let the derived class set the args and kwargs
-            self.encode()
+            self.encode()                       # let the derived class set the args and kwargs
 
             if _debug: IOChainMixIn._debug("    - encode complete")
         except:
-            # extract the error and abort the request
-            err = sys.exc_info()[1]
+            err = sys.exc_info()[1]             # extract the error and abort the request
             if _debug: IOChainMixIn._exception("    - encoding exception: %r", err)
-
             iocb.abort(err)
+
 
     def chain_callback(self, iocb):
         """Callback when this iocb completes."""
         if _debug: IOChainMixIn._debug("chain_callback %r", iocb)
 
-        # if we're not chained, there's no notification to do
-        if not self.ioChain:
+        if not self.ioChain:                    # if we're not chained, there's no notification to do
             return
 
-        # refer to the chained iocb
-        iocb = self.ioChain
+        iocb = self.ioChain                     # refer to the chained iocb
 
         try:
             if _debug: IOChainMixIn._debug("    - decoding")
 
-            # let the derived class transform the data
-            self.decode()
+            self.decode()                       # let the derived class transform the data
 
             if _debug: IOChainMixIn._debug("    - decode complete")
         except:
-            # extract the error and abort
-            err = sys.exc_info()[1]
+            err = sys.exc_info()[1]             # extract the error and abort
             if _debug: IOChainMixIn._exception("    - decoding exception: %r", err)
 
             iocb.ioState = ABORTED
             iocb.ioError = err
 
-        # break the references
-        self.ioChain = None
+        self.ioChain = None                     # break the references
         iocb.ioController = None
+        iocb.trigger()                          # notify the client
 
-        # notify the client
-        iocb.trigger()
 
     def abort_io(self, iocb, err):
         """Forward the abort downstream."""
@@ -312,34 +282,29 @@ class IOChainMixIn(DebugContents):
         # be overridden by IOGroup
         self.abort(err)
 
+
     def encode(self):
         """Hook to transform the request, called when this IOCB is
         chained."""
         if _debug: IOChainMixIn._debug("encode")
-
         # by default do nothing, the arguments have already been supplied
+
 
     def decode(self):
         """Hook to transform the response, called when this IOCB is
         completed."""
         if _debug: IOChainMixIn._debug("decode")
 
-        # refer to the chained iocb
-        iocb = self.ioChain
+        iocb = self.ioChain                     # refer to the chained iocb
 
-        # if this has completed successfully, pass it up
-        if self.ioState == COMPLETED:
+        if self.ioState == COMPLETED:           # if this has completed successfully, pass it up
             if _debug: IOChainMixIn._debug("    - completed: %r", self.ioResponse)
 
-            # change the state and transform the content
-            iocb.ioState = COMPLETED
+            iocb.ioState = COMPLETED            # change the state and transform the content
             iocb.ioResponse = self.ioResponse
 
-        # if this aborted, pass that up too
-        elif self.ioState == ABORTED:
+        elif self.ioState == ABORTED:           # if this aborted, pass that up too
             if _debug: IOChainMixIn._debug("    - aborted: %r", self.ioError)
-
-            # change the state
             iocb.ioState = ABORTED
             iocb.ioError = self.ioError
 
@@ -357,8 +322,7 @@ class IOChain(IOCB, IOChainMixIn):
         """Initialize a chained control block."""
         if _debug: IOChain._debug("__init__ %r %r %r", chain, args, kwargs)
 
-        # initialize IOCB part to pick up the ioID
-        IOCB.__init__(self, *args, **kwargs)
+        IOCB.__init__(self, *args, **kwargs)    # initialize IOCB part to pick up the ioID
         IOChainMixIn.__init__(self, chain)
 
 #
@@ -375,20 +339,18 @@ class IOGroup(IOCB, DebugContents):
         if _debug: IOGroup._debug("__init__")
         IOCB.__init__(self)
 
-        # start with an empty list of members
-        self.ioMembers = []
-
         # start out being done.  When an IOCB is added to the
         # group that is not already completed, this state will
         # change to PENDING.
+        self.ioMembers = []
         self.ioState = COMPLETED
         self.ioComplete.set()
+
 
     def add(self, iocb):
         """Add an IOCB to the group, you can also add other groups."""
         if _debug: IOGroup._debug("add %r", iocb)
 
-        # add this to our members
         self.ioMembers.append(iocb)
 
         # assume all of our members have not completed yet
@@ -399,20 +361,20 @@ class IOGroup(IOCB, DebugContents):
         # has already completed, it will trigger
         iocb.add_callback(self.group_callback)
 
+
     def group_callback(self, iocb):
         """Callback when a child iocb completes."""
         if _debug: IOGroup._debug("group_callback %r", iocb)
 
-        # check all the members
         for iocb in self.ioMembers:
             if not iocb.ioComplete.isSet():
                 if _debug: IOGroup._debug("    - waiting for child: %r", iocb)
                 break
         else:
             if _debug: IOGroup._debug("    - all children complete")
-            # everything complete
             self.ioState = COMPLETED
             self.trigger()
+
 
     def abort(self, err):
         """Called by a client to abort all of the member transactions.
@@ -420,16 +382,13 @@ class IOGroup(IOCB, DebugContents):
         function will be called."""
         if _debug: IOGroup._debug("abort %r", err)
 
-        # change the state to reflect that it was killed
         self.ioState = ABORTED
         self.ioError = err
 
-        # abort all the members
-        for iocb in self.ioMembers:
+        for iocb in self.ioMembers:             # abort all the members
             iocb.abort(err)
 
-        # notify the client
-        self.trigger()
+        self.trigger()                          # notify the client
 
 #
 #   IOQueue
@@ -446,31 +405,27 @@ class IOQueue:
 
         self.queue = []
 
+
     def put(self, iocb):
         """Add an IOCB to a queue.  This is usually called by the function
         that filters requests and passes them out to the correct processing
         thread."""
         if _debug: IOQueue._debug("put %r", iocb)
 
-        # requests should be pending before being queued
-        if iocb.ioState != PENDING:
+        if iocb.ioState != PENDING:             # requests should be pending before being queued
             raise RuntimeError("invalid state transition")
 
-        # save that it might have been empty
-        wasempty = not self.notempty.isSet()
+        wasempty = not self.notempty.isSet()    # save that it might have been empty
 
         # add the request to the end of the list of iocb's at same priority
         priority = iocb.ioPriority
         item = (priority, iocb)
         self.queue.insert(bisect_left(self.queue, (priority+1,)), item)
 
-        # point the iocb back to this queue
-        iocb.ioQueue = self
-
-        # set the event, queue is no longer empty
-        self.notempty.set()
-
+        iocb.ioQueue = self                     # point the iocb back to this queue
+        self.notempty.set()                     # set the event, queue is no longer empty
         return wasempty
+
 
     def get(self, block=1, delay=None):
         """Get a request from a queue, optionally block until a request
@@ -481,26 +436,23 @@ class IOQueue:
         if not block and not self.notempty.isSet():
             return None
 
-        # wait for something to be in the queue
-        if delay:
+        if delay:                               # wait for something to be in the queue
             self.notempty.wait(delay)
             if not self.notempty.isSet():
                 return None
         else:
             self.notempty.wait()
 
-        # extract the first element
-        priority, iocb = self.queue[0]
+        priority, iocb = self.queue[0]          # extract the first element
         del self.queue[0]
         iocb.ioQueue = None
 
-        # if the queue is empty, clear the event
         qlen = len(self.queue)
-        if not qlen:
+        if not qlen:                            # if the queue is empty, clear the event
             self.notempty.clear()
 
-        # return the request
         return iocb
+
 
     def remove(self, iocb):
         """Remove a control block from the queue, called if the request
@@ -523,6 +475,7 @@ class IOQueue:
                 break
         else:
             if _debug: IOQueue._debug("    - not found")
+
 
     def abort(self, err):
         """Abort all of the control blocks in the queue."""
@@ -553,45 +506,38 @@ class IOController(object):
         """Initialize a controller."""
         if _debug: IOController._debug("__init__ name=%r", name)
 
-        # save the name
         self.name = name
+
 
     def abort(self, err):
         """Abort all requests, no default implementation."""
         pass
 
+
     def request_io(self, iocb):
         """Called by a client to start processing a request."""
         if _debug: IOController._debug("request_io %r", iocb)
 
-        # check that the parameter is an IOCB
         if not isinstance(iocb, IOCB):
             raise TypeError("IOCB expected")
 
-        # bind the iocb to this controller
-        iocb.ioController = self
-
+        iocb.ioController = self                # bind the iocb to this controller
         try:
-            # hopefully there won't be an error
             err = None
-
-            # change the state
             iocb.ioState = PENDING
-
-            # let derived class figure out how to process this
-            self.process_io(iocb)
+            self.process_io(iocb)               # let derived class figure out how to process this
         except:
-            # extract the error
             err = sys.exc_info()[1]
 
-        # if there was an error, abort the request
         if err:
             self.abort_io(iocb, err)
+
 
     def process_io(self, iocb):
         """Figure out how to respond to this request.  This must be
         provided by the derived class."""
         raise NotImplementedError("IOController must implement process_io()")
+
 
     def active_io(self, iocb):
         """Called by a handler to notify the controller that a request is
@@ -602,48 +548,36 @@ class IOController(object):
         if (iocb.ioState != IDLE) and (iocb.ioState != PENDING):
             raise RuntimeError("invalid state transition (currently %d)" % (iocb.ioState,))
 
-        # change the state
         iocb.ioState = ACTIVE
+
 
     def complete_io(self, iocb, msg):
         """Called by a handler to return data to the client."""
         if _debug: IOController._debug("complete_io %r %r", iocb, msg)
 
-        # if it completed, leave it alone
-        if iocb.ioState == COMPLETED:
+        if iocb.ioState == COMPLETED:           # if it completed, leave it alone
             pass
-
-        # if it already aborted, leave it alone
-        elif iocb.ioState == ABORTED:
+        elif iocb.ioState == ABORTED:           # if it already aborted, leave it alone
             pass
-
         else:
-            # change the state
             iocb.ioState = COMPLETED
             iocb.ioResponse = msg
+            iocb.trigger()                      # notify the client
 
-            # notify the client
-            iocb.trigger()
 
     def abort_io(self, iocb, err):
         """Called by a handler or a client to abort a transaction."""
         if _debug: IOController._debug("abort_io %r %r", iocb, err)
 
-        # if it completed, leave it alone
-        if iocb.ioState == COMPLETED:
+        if iocb.ioState == COMPLETED:           # if it completed, leave it alone
             pass
-
-        # if it already aborted, leave it alone
-        elif iocb.ioState == ABORTED:
+        elif iocb.ioState == ABORTED:           # if it already aborted, leave it alone
             pass
-
         else:
-            # change the state
             iocb.ioState = ABORTED
             iocb.ioError = err
+            iocb.trigger()                      # notify the client
 
-            # notify the client
-            iocb.trigger()
 
 #
 #   IOQController
@@ -659,15 +593,14 @@ class IOQController(IOController):
         if _debug: IOQController._debug("__init__ name=%r", name)
         IOController.__init__(self, name)
 
-        # start idle
         self.state = CTRL_IDLE
         _statelog.debug("%s %s %s" % (_strftime(), self.name, "idle"))
 
-        # no active iocb
         self.active_iocb = None
 
         # create an IOQueue for iocb's requested when not idle
         self.ioQueue = IOQueue(str(name) + " queue")
+
 
     def abort(self, err):
         """Abort all pending requests."""
@@ -683,25 +616,21 @@ class IOQController(IOController):
                 break
             if _debug: IOQController._debug("    - iocb: %r", iocb)
 
-            # change the state
             iocb.ioState = ABORTED
             iocb.ioError = err
-
-            # notify the client
-            iocb.trigger()
+            iocb.trigger()                      # notify the client
 
         if (self.state != CTRL_IDLE):
             if _debug: IOQController._debug("    - busy after aborts")
+
 
     def request_io(self, iocb):
         """Called by a client to start processing a request."""
         if _debug: IOQController._debug("request_io %r", iocb)
 
-        # bind the iocb to this controller
         iocb.ioController = self
 
-        # if we're busy, queue it
-        if (self.state != CTRL_IDLE):
+        if (self.state != CTRL_IDLE):           # if we're busy, queue it
             if _debug: IOQController._debug("    - busy, request queued")
 
             iocb.ioState = PENDING
@@ -709,23 +638,20 @@ class IOQController(IOController):
             return
 
         try:
-            # hopefully there won't be an error
             err = None
-
-            # let derived class figure out how to process this
-            self.process_io(iocb)
+            self.process_io(iocb)               # let derived class figure out how to process this
         except:
-            # extract the error
             err = sys.exc_info()[1]
 
-        # if there was an error, abort the request
         if err:
             self.abort_io(iocb, err)
+
 
     def process_io(self, iocb):
         """Figure out how to respond to this request.  This must be
         provided by the derived class."""
         raise NotImplementedError("IOController must implement process_io()")
+
 
     def active_io(self, iocb):
         """Called by a handler to notify the controller that a request is
@@ -735,30 +661,24 @@ class IOQController(IOController):
         # base class work first, setting iocb state and timer data
         IOController.active_io(self, iocb)
 
-        # change our state
         self.state = CTRL_ACTIVE
-        _statelog.debug("%s %s %s" % (_strftime(), self.name, "active"))
-
-        # keep track of the iocb
         self.active_iocb = iocb
+        _statelog.debug("%s %s %s" % (_strftime(), self.name, "active"))
+ 
 
     def complete_io(self, iocb, msg):
         """Called by a handler to return data to the client."""
         if _debug: IOQController._debug("complete_io %r %r", iocb, msg)
 
-        # check to see if it is completing the active one
         if iocb is not self.active_iocb:
             raise RuntimeError("not the current iocb")
 
         # normal completion
         IOController.complete_io(self, iocb, msg)
-
-        # no longer an active iocb
         self.active_iocb = None
 
         # check to see if we should wait a bit
         if self.wait_time:
-            # change our state
             self.state = CTRL_WAITING
             _statelog.debug("%s %s %s" % (_strftime(), self.name, "waiting"))
 
@@ -767,34 +687,30 @@ class IOQController(IOController):
             task.install_task(_time() + self.wait_time)
 
         else:
-            # change our state
             self.state = CTRL_IDLE
             _statelog.debug("%s %s %s" % (_strftime(), self.name, "idle"))
 
             # look for more to do
             deferred(IOQController._trigger, self)
 
+
     def abort_io(self, iocb, err):
         """Called by a handler or a client to abort a transaction."""
         if _debug: IOQController._debug("abort_io %r %r", iocb, err)
 
-        # normal abort
         IOController.abort_io(self, iocb, err)
 
-        # check to see if it is completing the active one
         if iocb is not self.active_iocb:
             if _debug: IOQController._debug("    - not current iocb")
             return
 
-        # no longer an active iocb
         self.active_iocb = None
-
-        # change our state
         self.state = CTRL_IDLE
         _statelog.debug("%s %s %s" % (_strftime(), self.name, "idle"))
 
         # look for more to do
         deferred(IOQController._trigger, self)
+
 
     def _trigger(self):
         """Called to launch the next request in the queue."""
@@ -810,41 +726,32 @@ class IOQController(IOController):
             if _debug: IOQController._debug("    - empty queue")
             return
 
-        # get the next iocb
-        iocb = self.ioQueue.get()
+        iocb = self.ioQueue.get()               # get the next iocb
 
         try:
-            # hopefully there won't be an error
             err = None
-
-            # let derived class figure out how to process this
-            self.process_io(iocb)
+            self.process_io(iocb)               # let derived class figure out how to process this
         except:
-            # extract the error
             err = sys.exc_info()[1]
 
-        # if there was an error, abort the request
         if err:
             self.abort_io(iocb, err)
 
-        # if we're idle, call again
-        if self.state == CTRL_IDLE:
+        if self.state == CTRL_IDLE:             # if we're idle, call again
             deferred(IOQController._trigger, self)
+
 
     def _wait_trigger(self):
         """Called to launch the next request in the queue."""
         if _debug: IOQController._debug("_wait_trigger")
 
-        # make sure we are waiting
         if (self.state != CTRL_WAITING):
             raise RuntimeError("not waiting")
 
-        # change our state
         self.state = CTRL_IDLE
         _statelog.debug("%s %s %s" % (_strftime(), self.name, "idle"))
 
-        # look for more to do
-        IOQController._trigger(self)
+        IOQController._trigger(self)            # look for more to do
 
 #
 #   ClientController
@@ -858,19 +765,17 @@ class ClientController(Client, IOQController):
         Client.__init__(self)
         IOController.__init__(self)
 
+
     def process_io(self, iocb):
         if _debug: ClientController._debug("process_io %r", iocb)
 
-        # this is now an active request
-        self.active_io(iocb)
+        self.active_io(iocb)                    # this is now an active request
+        self.request(iocb.args[0])              # send the PDU downstream
 
-        # send the PDU downstream
-        self.request(iocb.args[0])
 
     def confirmation(self, pdu):
         if _debug: ClientController._debug("confirmation %r %r", args, kwargs)
 
-        # make sure it has an active iocb
         if not self.active_iocb:
             ClientController._debug("no active request")
             return
@@ -892,18 +797,15 @@ class SieveQueue(IOQController):
         if _debug: SieveQueue._debug("__init__ %r %r", request_fn, address)
         IOQController.__init__(self, str(address))
 
-        # save a reference to the request function
         self.request_fn = request_fn
         self.address = address
+
 
     def process_io(self, iocb):
         if _debug: SieveQueue._debug("process_io %r", iocb)
 
-        # this is now an active request
-        self.active_io(iocb)
-
-        # send the request
-        self.request_fn(iocb.args[0])
+        self.active_io(iocb)                    # this is now an active request
+        self.request_fn(iocb.args[0])           # send the request
 
 #
 #   SieveClientController
@@ -917,25 +819,23 @@ class SieveClientController(Client, IOController):
         Client.__init__(self)
         IOController.__init__(self)
 
-        # queues for each address
-        self.queues = {}
+        self.queues = {}                        # queues for each address
+
 
     def process_io(self, iocb):
         if _debug: SieveClientController._debug("process_io %r", iocb)
 
-        # get the destination address from the pdu
         destination_address = iocb.args[0].pduDestination
         if _debug: SieveClientController._debug("    - destination_address: %r", destination_address)
 
-        # look up the queue
         queue = self.queues.get(destination_address, None)
         if not queue:
             queue = SieveQueue(self.request, destination_address)
             self.queues[destination_address] = queue
         if _debug: SieveClientController._debug("    - queue: %r", queue)
 
-        # ask the queue to process the request
         queue.request_io(iocb)
+
 
     def request(self, pdu):
         if _debug: SieveClientController._debug("request %r", pdu)
@@ -943,27 +843,24 @@ class SieveClientController(Client, IOController):
         # send it downstream
         super(SieveClientController, self).request(pdu)
 
+
     def confirmation(self, pdu):
         if _debug: SieveClientController._debug("confirmation %r", pdu)
 
-        # get the source address
         source_address = pdu.pduSource
-        if _debug: SieveClientController._debug("    - source_address: %r", source_address)
-
-        # look up the queue
         queue = self.queues.get(source_address, None)
+        if _debug: SieveClientController._debug("    - source_address: %r", source_address)
+        if _debug: SieveClientController._debug("    - queue: %r", queue)
+
         if not queue:
             SieveClientController._debug("no queue for %r" % (source_address,))
             return
-        if _debug: SieveClientController._debug("    - queue: %r", queue)
 
-        # make sure it has an active iocb
         if not queue.active_iocb:
             SieveClientController._debug("no active request for %r" % (source_address,))
             return
 
-        # complete the request
-        if isinstance(pdu, Exception):
+        if isinstance(pdu, Exception):          # complete the request
             queue.abort_io(queue.active_iocb, pdu)
         else:
             queue.complete_io(queue.active_iocb, pdu)
@@ -982,11 +879,9 @@ def register_controller(controller):
     if _debug: register_controller._debug("register_controller %r", controller)
     global local_controllers
 
-    # skip those that shall not be named
-    if not controller.name:
+    if not controller.name:                     # skip those that shall not be named
         return
 
-    # make sure there isn't one already
     if controller.name in local_controllers:
         raise RuntimeError("already a local controller named %r" % (controller.name,))
 

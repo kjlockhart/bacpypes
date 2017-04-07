@@ -4,18 +4,25 @@
 TCP Communications Module
 """
 
+#--- standard Python modules ---
 import asyncore
 import socket
 import pickle
 from time import time as _time, sleep as _sleep
 from io import StringIO
 
+#--- 3rd party modules ---
+
+#--- this application's modules ---
 from .debugging import ModuleLogger, DebugContents, bacpypes_debugging
 
 from .core import deferred
 from .task import FunctionTask, OneShotFunction
 from .comm import PDU, Client, Server
 from .comm import ServiceAccessPoint, ApplicationServiceElement
+
+
+#------------------------------------------------------------------------------
 
 # some debugging
 _debug = 0
@@ -24,6 +31,8 @@ _log = ModuleLogger(globals())
 # globals
 REBIND_SLEEP_INTERVAL = 2.0
 
+
+#------------------------------------------------------------------------------
 #
 #   PickleActorMixIn
 #
@@ -41,11 +50,9 @@ class PickleActorMixIn:
     def indication(self, pdu):
         if _debug: PickleActorMixIn._debug("indication %r", pdu)
 
-        # pickle the data
         pdu.pduData = pickle.dumps(pdu.pduData)
-
-        # continue as usual
         super(PickleActorMixIn, self).indication(pdu)
+
 
     def response(self, pdu):
         if _debug: PickleActorMixIn._debug("response %r", pdu)
@@ -79,6 +86,8 @@ class PickleActorMixIn:
         else:
             self.pickleBuffer = ''
 
+
+#------------------------------------------------------------------------------
 #
 #   TCPClient
 #
@@ -98,11 +107,8 @@ class TCPClient(asyncore.dispatcher):
         # ask the dispatcher for a socket
         self.create_socket(socket.AF_INET, socket.SOCK_STREAM)
 
-        # save the peer
         self.peer = peer
-
-        # create a request buffer
-        self.request = b''
+        self.request = b''                      # create a request buffer
 
         # try to connect
         try:
@@ -111,8 +117,8 @@ class TCPClient(asyncore.dispatcher):
         except socket.error as err:
             if _debug: TCPClient._debug("    - connect socket error: %r", err)
 
-            # pass along to a handler
-            self.handle_error(err)
+            self.handle_error(err)              # pass along to a handler
+
 
     def handle_connect(self):
         if _debug: TCPClient._debug("handle_connect")
@@ -202,14 +208,13 @@ class TCPClient(asyncore.dispatcher):
         # pass along
         asyncore.dispatcher.handle_write_event(self)
 
+
     def handle_close(self):
         if _debug: TCPClient._debug("handle_close")
 
-        # close the socket
         self.close()
-
-        # make sure other routines know the socket is closed
         self.socket = None
+
 
     def handle_error(self, error=None):
         """Trap for TCPClient errors, otherwise continue."""
@@ -218,12 +223,15 @@ class TCPClient(asyncore.dispatcher):
         # core does not take parameters
         asyncore.dispatcher.handle_error(self)
 
+
     def indication(self, pdu):
         """Requests are queued for delivery."""
         if _debug: TCPClient._debug("indication %r", pdu)
 
         self.request += pdu.pduData
 
+
+#------------------------------------------------------------------------------
 #
 #   TCPClientActor
 #
@@ -276,17 +284,15 @@ class TCPClientActor(TCPClient):
         if self.timer:
             self.timer.suspend_task()
 
-        # tell the director this is gone
-        self.director.del_actor(self)
+        self.director.del_actor(self)           # tell the director this is gone
+        TCPClient.handle_close(self)            # pass the function along
 
-        # pass the function along
-        TCPClient.handle_close(self)
 
     def idle_timeout(self):
         if _debug: TCPClientActor._debug("idle_timeout")
 
-        # shut it down
         self.handle_close()
+
 
     def indication(self, pdu):
         if _debug: TCPClientActor._debug("indication %r", pdu)
@@ -330,6 +336,8 @@ class TCPClientActor(TCPClient):
         # close up shop, all done
         self.handle_close()
 
+
+#------------------------------------------------------------------------------
 #
 #   TCPPickleClientActor
 #
@@ -360,16 +368,12 @@ class TCPClientDirector(Server, ServiceAccessPoint, DebugContents):
         # check the actor class
         if not issubclass(actorClass, TCPClientActor):
             raise TypeError("actorClass must be a subclass of TCPClientActor")
+
         self.actorClass = actorClass
-
-        # save the timeout for actors
         self.timeout = timeout
+        self.clients = {}                       # start with an empty client pool
+        self.reconnect = {}                     # no clients automatically reconnecting
 
-        # start with an empty client pool
-        self.clients = {}
-
-        # no clients automatically reconnecting
-        self.reconnect = {}
 
     def add_actor(self, actor):
         """Add an actor when a new one is connected."""
@@ -448,6 +452,8 @@ class TCPClientDirector(Server, ServiceAccessPoint, DebugContents):
         # send the message
         client.indication(pdu)
 
+
+#------------------------------------------------------------------------------
 #
 #   TCPServer
 #
@@ -459,11 +465,9 @@ class TCPServer(asyncore.dispatcher):
         if _debug: TCPServer._debug("__init__ %r %r", sock, peer)
         asyncore.dispatcher.__init__(self, sock)
 
-        # save the peer
         self.peer = peer
+        self.request = b''                      # create a request buffer
 
-        # create a request buffer
-        self.request = b''
 
     def handle_connect(self):
         if _debug: TCPServer._debug("handle_connect")
@@ -491,8 +495,8 @@ class TCPServer(asyncore.dispatcher):
             else:
                 if _debug: TCPServer._debug("    - recv socket error: %s", err)
 
-            # pass along to a handler
-            self.handle_error(err)
+            self.handle_error(err)              # pass along to a handler
+
 
     def writable(self):
         return (len(self.request) != 0)
@@ -541,6 +545,8 @@ class TCPServer(asyncore.dispatcher):
 
         self.request += pdu.pduData
 
+
+#------------------------------------------------------------------------------
 #
 #   TCPServerActor
 #
@@ -586,17 +592,14 @@ class TCPServerActor(TCPServer):
         if self.flushTask:
             self.flushTask.suspend_task()
 
-        # tell the director this is gone
-        self.director.del_actor(self)
+        self.director.del_actor(self)           # tell the director this is gone
+        TCPServer.handle_close(self)            # pass it down
 
-        # pass it down
-        TCPServer.handle_close(self)
 
     def idle_timeout(self):
         if _debug: TCPServerActor._debug("idle_timeout")
-
-        # shut it down
         self.handle_close()
+
 
     def indication(self, pdu):
         if _debug: TCPServerActor._debug("indication %r", pdu)
@@ -645,6 +648,8 @@ class TCPServerActor(TCPServer):
         # close up shop, all done
         self.handle_close()
 
+
+#------------------------------------------------------------------------------
 #
 #   TCPPickleServerActor
 #
@@ -652,6 +657,8 @@ class TCPServerActor(TCPServer):
 class TCPPickleServerActor(PickleActorMixIn, TCPServerActor):
     pass
 
+
+#------------------------------------------------------------------------------
 #
 #   TCPServerDirector
 #
@@ -784,6 +791,8 @@ class TCPServerDirector(asyncore.dispatcher, Server, ServiceAccessPoint, DebugCo
         # pass the indication to the actor
         server.indication(pdu)
 
+
+#------------------------------------------------------------------------------
 #
 #   StreamToPacket
 #
@@ -854,6 +863,8 @@ class StreamToPacket(Client, Server):
         for packet in self.packetize(pdu, self.upstreamBuffer):
             self.response(packet)
 
+
+#------------------------------------------------------------------------------
 #
 #   StreamToPacketSAP
 #

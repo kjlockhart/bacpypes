@@ -4,6 +4,7 @@
 UDP Communications Module
 """
 
+#--- standard Python modules ---
 import asyncore
 import socket
 import pickle
@@ -11,6 +12,7 @@ import queue
 
 from time import time as _time
 
+#--- 3rd party modules ---
 from .debugging import ModuleLogger, bacpypes_debugging
 
 from .core import deferred
@@ -18,10 +20,16 @@ from .task import FunctionTask
 from .comm import PDU, Server
 from .comm import ServiceAccessPoint
 
+#--- this application's modules ---
+
+#------------------------------------------------------------------------------
+
 # some debugging
 _debug = 0
 _log = ModuleLogger(globals())
 
+
+#------------------------------------------------------------------------------
 #
 #   UDPActor
 #
@@ -35,14 +43,10 @@ class UDPActor:
     def __init__(self, director, peer):
         if _debug: UDPActor._debug("__init__ %r %r", director, peer)
 
-        # keep track of the director
         self.director = director
-
-        # associated with a peer
         self.peer = peer
-
-        # add a timer
         self.timeout = director.timeout
+
         if self.timeout > 0:
             self.timer = FunctionTask(self.idle_timeout)
             self.timer.install_task(_time() + self.timeout)
@@ -52,11 +56,13 @@ class UDPActor:
         # tell the director this is a new actor
         self.director.add_actor(self)
 
+
     def idle_timeout(self):
         if _debug: UDPActor._debug("idle_timeout")
 
         # tell the director this is gone
         self.director.del_actor(self)
+
 
     def indication(self, pdu):
         if _debug: UDPActor._debug("indication %r", pdu)
@@ -68,6 +74,7 @@ class UDPActor:
         # put it in the outbound queue for the director
         self.director.request.put(pdu)
 
+
     def response(self, pdu):
         if _debug: UDPActor._debug("response %r", pdu)
 
@@ -78,6 +85,7 @@ class UDPActor:
         # process this as a response from the director
         self.director.response(pdu)
 
+
     def handle_error(self, error=None):
         if _debug: UDPActor._debug("handle_error %r", error)
 
@@ -85,6 +93,8 @@ class UDPActor:
         if error is not None:
             self.director.actor_error(self, error)
 
+
+#------------------------------------------------------------------------------
 #
 #   UDPPickleActor
 #
@@ -99,25 +109,23 @@ class UDPPickleActor(UDPActor):
     def indication(self, pdu):
         if _debug: UDPPickleActor._debug("indication %r", pdu)
 
-        # pickle the data
         pdu.pduData = pickle.dumps(pdu.pduData)
-
-        # continue as usual
         UDPActor.indication(self, pdu)
+
 
     def response(self, pdu):
         if _debug: UDPPickleActor._debug("response %r", pdu)
 
-        # unpickle the data
         try:
             pdu.pduData = pickle.loads(pdu.pduData)
         except:
             UDPPickleActor._exception("pickle error")
             return
 
-        # continue as usual
         UDPActor.response(self, pdu)
 
+
+#------------------------------------------------------------------------------
 #
 #   UDPDirector
 #
@@ -135,12 +143,8 @@ class UDPDirector(asyncore.dispatcher, Server, ServiceAccessPoint):
             raise TypeError("actorClass must be a subclass of UDPActor")
         self.actorClass = actorClass
 
-        # save the timeout for actors
         self.timeout = timeout
-
-        # save the address
         self.address = address
-
         asyncore.dispatcher.__init__(self)
 
         # ask the dispatcher for a socket
@@ -157,11 +161,9 @@ class UDPDirector(asyncore.dispatcher, Server, ServiceAccessPoint):
         # allow it to send broadcasts
         self.socket.setsockopt( socket.SOL_SOCKET, socket.SO_BROADCAST, 1 )
 
-        # create the request queue
         self.request = queue.Queue()
+        self.peers = {}                         # start with an empty peer pool
 
-        # start with an empty peer pool
-        self.peers = {}
 
     def add_actor(self, actor):
         """Add an actor when a new one is connected."""
@@ -173,6 +175,7 @@ class UDPDirector(asyncore.dispatcher, Server, ServiceAccessPoint):
         if self.serviceElement:
             self.sap_request(add_actor=actor)
 
+
     def del_actor(self, actor):
         """Remove an actor when the socket is closed."""
         if _debug: UDPDirector._debug("del_actor %r", actor)
@@ -182,6 +185,7 @@ class UDPDirector(asyncore.dispatcher, Server, ServiceAccessPoint):
         # tell the ASE the client has gone away
         if self.serviceElement:
             self.sap_request(del_actor=actor)
+
 
     def actor_error(self, actor, error):
         if _debug: UDPDirector._debug("actor_error %r %r", actor, error)
@@ -198,6 +202,7 @@ class UDPDirector(asyncore.dispatcher, Server, ServiceAccessPoint):
 
     def readable(self):
         return 1
+
 
     def handle_read(self):
         if _debug: UDPDirector._debug("handle_read")
@@ -238,14 +243,12 @@ class UDPDirector(asyncore.dispatcher, Server, ServiceAccessPoint):
         except socket.error as err:
             if _debug: UDPDirector._debug("    - socket error: %s", err)
 
-            # get the peer
             peer = self.peers.get(pdu.pduDestination, None)
             if peer:
-                # let the actor handle the error
-                peer.handle_error(err)
+                peer.handle_error(err)          # let the actor handle the error
             else:
-                # let the director handle the error
-                self.handle_error(err)
+                self.handle_error(err)          # let the director handle the error
+
 
     def handle_close(self):
         """Remove this from the monitor when it's closed."""
@@ -261,28 +264,21 @@ class UDPDirector(asyncore.dispatcher, Server, ServiceAccessPoint):
         """Client requests are queued for delivery."""
         if _debug: UDPDirector._debug("indication %r", pdu)
 
-        # get the destination
         addr = pdu.pduDestination
-
-        # get the peer
         peer = self.peers.get(addr, None)
         if not peer:
             peer = self.actorClass(self, addr)
 
-        # send the message
-        peer.indication(pdu)
+        peer.indication(pdu)                    # send the message
+
 
     def _response(self, pdu):
         """Incoming datagrams are routed through an actor."""
         if _debug: UDPDirector._debug("_response %r", pdu)
 
-        # get the destination
         addr = pdu.pduSource
-
-        # get the peer
         peer = self.peers.get(addr, None)
         if not peer:
             peer = self.actorClass(self, addr)
 
-        # send the message
-        peer.response(pdu)
+        peer.response(pdu)                      # send the message

@@ -63,6 +63,7 @@ from . import constructeddata
 from . import basetypes
 
 from . import object
+#from .localize import object_bacnet as object
 
 from . import apdu
 

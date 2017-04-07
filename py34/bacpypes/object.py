@@ -44,7 +44,7 @@ from .apdu import EventNotificationParameters, ReadAccessSpecification, \
     ReadAccessResult
 
 # some debugging
-_debug = 0
+_debug = 1
 _log = ModuleLogger(globals())
 
 #

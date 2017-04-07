@@ -36,19 +36,16 @@ class WaitableEvent(asyncore.file_dispatcher, Logging):
     def __del__(self):
         if _debug: WaitableEvent._debug("__del__")
 
-        # close the file descriptors
         os.close(self._read_fd)
         os.close(self._write_fd)
 
     #----- file methods
 
     def readable(self):
-        # we are always happy to read
-        return True
+        return True                             # we are always happy to read
 
     def writable(self):
-        # we never have anything to write
-        return False
+        return False                            # we never have anything to write
 
     def handle_read(self):
         if _debug: WaitableEvent._debug("handle_read")
