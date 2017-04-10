@@ -71,6 +71,16 @@ essential components of a BACpypes application and how the pieces fit together.
     tutorial/iocb.rst
     tutorial/capability.rst
 
+
+Developer Background
+--------------------
+
+.. toctree::
+    :maxdepth: 1
+
+    structure/bn_architecture.rst
+    
+    
 Migration
 ---------
 
@@ -99,7 +109,12 @@ folder.
 .. toctree::
     :maxdepth: 1
 
-    samples/sample_index.rst
+    samples/sample001.rst
+    samples/sample002.rst
+    samples/sample003.rst
+    samples/sample004.rst
+    samples/sample005.rst
+    samples/sample014.rst
 
 
 Glossary
