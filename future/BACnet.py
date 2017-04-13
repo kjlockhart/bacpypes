@@ -96,10 +96,7 @@ LOG = logging.getLogger('standard')
 #--- 3rd party modules ---
 
 #--- this application's modules ---
-from bacpypes.pdu import Address
-
-from bacpypes.core import run as start_bacpypes
-from bacpypes.core import stop as stop_bacpypes
+from bacpypes.core import run,stop
 from bacpypes.core import enable_sleeping
 
 #from bacpypes.primitivedata import CharacterString
@@ -111,9 +108,12 @@ from bacpypes.app import BIPSimpleApplication
 
 from bacpypes.iocb import IOCB
 
+from bacpypes.pdu import Address, GlobalBroadcast
+
 from bacpypes.apdu import PropertyReference, ReadAccessSpecification, \
     ReadPropertyRequest, ReadPropertyACK, \
-    ReadPropertyMultipleRequest, ReadPropertyMultipleACK 
+    ReadPropertyMultipleRequest, ReadPropertyMultipleACK, \
+    WhoIsRequest
 
 from bacpypes.object import get_object_class, get_datatype
 
@@ -121,12 +121,39 @@ from bacpypes.object import get_object_class, get_datatype
 
 #------------------------------------------------------------------------------
 
+Obj_map= {
+    'AI': 'analogInput',
+    'AO': 'analogOutput',
+    'AV': 'analogValue',
+    'BI': 'binaryInput',
+    'BO': 'binaryOutput',
+    'BV': 'binaryValue',
+    }
+
+Obj_reverse= {
+    'analogInput': 'AI',
+    'analogOutput': 'AO',
+    'analogValue': 'AV',
+    'binaryInput': 'BI',
+    'binaryOutput': 'BO',
+    'binaryValue': 'BV',
+    }
+
+Dev_map= {
+    '1100': '192.168.87.67:49152',
+    '1200': '20020:12',
+    '2100': '192.168.87.11:47809',
+    '2300': '192.168.87.48:47808',
+    '3000': '20002:30',
+    }
+
+
 #------------------------------------------------------------------------------
 
 print('BACnet loaded')
 
 
-class BACnet():
+class BACnet(BIPSimpleApplication):
 
     #class ReadWriteScript(BasicScript, WhoisIAm, ReadProperty, WriteProperty, Simulation):
     """
@@ -145,70 +172,15 @@ class BACnet():
     def __init__(self):
         print('init')
 
+
         self.response = None
         self._started = False
         self._stopped = False
 
-        self._connect()
-        pass
-    
-
-    def read(self,oref,props=None):
-        print('read',oref,props)
-        
-        #[(dev,oType,oInst)]= re.findall('(\d+).(\D+)(\d+)',oref)
-
-        
-        if not props:
-            query= ['192.168.87.48:47808','analogValue',1,'presentValue']
-            return self._readProperty(query)
-        else:
-            return self._readMultiple(oref,props)
-
-
-    def write(self,oref):
-        print('write',oref)
-        pass
-
-
-    #--------------------------------------------------------------------------
-
-    def do_WhoIsRequest(self, apdu):
-        """Respond to a Who-Is request."""
-        print("do_WhoIsRequest %r", apdu)
-
-        # build a key from the source and parameters
-        key = (str(apdu.pduSource),
-            apdu.deviceInstanceRangeLowLimit,
-            apdu.deviceInstanceRangeHighLimit )
-
-        # count the times this has been received
-        self.who_is_counter[key] += 1
-
-        # continue with the default implementation
-        BIPSimpleApplication.do_WhoIsRequest(self, apdu)
-
-
-    def do_IAmRequest(self, apdu):
-        """Given an I-Am request, cache it."""
-        print("do_IAmRequest %r", apdu)
-
-        # build a key from the source, just use the instance number
-        key = (str(apdu.pduSource), apdu.iAmDeviceIdentifier[1] )
-        self.i_am_counter[key] += 1
-
-        # continue with the default implementation
-        BIPSimpleApplication.do_IAmRequest(self, apdu)
-
-
-    
-    def _connect(self):
         """
         Define the local device, including services supported.
         Once defined, start the BACnet stack in its own thread.
         """
-        print('connect')
-
         self.devId = 4000000    # (3056177 + int(random.uniform(0, 1000)))
         self.ip_addr= get_hostIP() 
 
@@ -233,6 +205,7 @@ class BACnet():
                 #protocolObjectTypesSupported=
                 databaseRevision= 0 )
 
+            '''
             # State the BACnet services we support
             pss = ServicesSupported()
             pss['whoIs'] = 1
@@ -241,8 +214,12 @@ class BACnet():
             pss['writeProperty'] = 1
             pss['readPropertyMultiple'] = 1
             self.this_device.protocolServicesSupported = pss.value
-
+            '''
+            
             self.this_application = BIPSimpleApplication(self.this_device, self.ip_addr)
+
+            services_supported = self.this_application.get_services_supported()
+            self.this_device.protocolServicesSupported = services_supported.value
 
             self._initialized = True
             self._startAppThread()
@@ -252,37 +229,131 @@ class BACnet():
             raise
 
 
-    '''
-    def disconnect(self):
-        """
-        Stop the BACnet stack.  Free the IP socket.
-        """
-        print('Stopping BACnet stack')
-        # Freeing socket
-        try:
-            self.this_application.mux.directPort.handle_close()
-        except:
-            self.this_application.mux.broadcastPort.handle_close()
-
-        stopBacnetIPApp()           # Stop Core
-        self._stopped = True        # Stop stack thread
-        self.t.join()
-        self._started = False
-        print('BACnet stopped')
-    '''
-
     def _startAppThread(self):
         """
         Starts the BACnet stack in its own thread so requests can be processed.
         """
         print('Starting bacpypes thread...')
         enable_sleeping(0.0005)
-        self.t = Thread(target=start_bacpypes, name='bacnet', daemon = True)
+        self.t = Thread(target=run, name='bacnet', daemon = True)
         #self.t = Thread(target=start_bacpypes, kwargs={'sigterm': None,'sigusr1': None}, daemon = True)
         self.t.start()
         self._started = True
         print('BACnet started')
         
+    
+
+    def read(self,oref,props='presentValue'):
+        print('read',oref,props)
+        
+        [(devId,t,i)]= re.findall('(\d+).(\D+)(\d+)',oref)
+
+        if devId not in Dev_map:
+            dic= self.send_whois(devId)
+            Dev_map[devId]= dic
+        
+        dstAddr= Dev_map[devId]
+        oType= Obj_map[t]
+        #query= [dstAddr,oType,int(i),'presentValue']
+        query= [dstAddr,oType,int(i),props]
+        
+        if isinstance(props, str):
+            value= self._readProperty(query)
+            return value
+        else:
+            values= self._readMultiple(query)
+            return values
+
+
+    def write(self,oref):
+        print('write',oref)
+        pass
+
+
+    #--------------------------------------------------------------------------
+
+    def do_WhoIsRequest(self, apdu):
+        """Respond to a Who-Is request."""
+        print("do_WhoIsRequest %r", apdu)
+
+        key = (str(apdu.pduSource),apdu.deviceInstanceRangeLowLimit,apdu.deviceInstanceRangeHighLimit )
+
+        # continue with the default implementation
+        BIPSimpleApplication.do_WhoIsRequest(self, apdu)
+
+
+    def do_IAmRequest(self, apdu):
+        """Given an I-Am request, cache it."""
+        src= apdu.pduSource
+        id= apdu.iAmDeviceIdentifier[1]
+        maxlen= apdu.maxAPDULengthAccepted
+        seg= apdu.segmentationSupported
+        vendor= apdu.vendorID 
+        
+        key = (str(apdu.pduSource), apdu.iAmDeviceIdentifier[1])
+        i_am[key] += 1
+
+        print('{} IAm({})- vendor={} maxlen={},{} '.format(src,id,vendor,maxlen,seg))
+        BIPSimpleApplication.do_IAmRequest(self, apdu)      # continue with default processing
+
+
+
+    #--------------------------------------------------------------------------
+
+    def send_whois(self, deviceId):
+        ''' Find the network address of the device with the given Device Identifier.
+            Broadcast this request to the entire BACnet internetwork.
+        '''
+        request = WhoIsRequest()
+        request.pduDestination = GlobalBroadcast()
+        request.deviceInstanceRangeLowLimit = int(deviceId)
+        request.deviceInstanceRangeHighLimit = int(deviceId)
+        print("    - request: %r" % request)
+
+        iocb = IOCB(request)                            # make an IOCB
+        self.this_application.request_io(iocb)          # pass to the BACnet stack
+        '''
+        iocb.wait()                                     # Wait for BACnet response
+
+        if iocb.ioResponse:     # successful response
+            apdu = iocb.ioResponse
+            if not isinstance(apdu, IAmRequest) and not isinstance(apdu, WhoIsRequest):
+                print(WhoisIAm,"    - not an ack")
+                return
+
+            # find the datatype
+            datatype = get_datatype(apdu.objectIdentifier[0], apdu.propertyIdentifier)
+            print("    - datatype: %r", datatype)
+            if not datatype:
+                raise TypeError("unknown datatype")
+
+            dic= {
+                'id': '',
+                'maxAPDU': 480,
+                'segSupported': False,
+                'vendorId': 1
+                }
+        '''
+#            # special case for array parts, others are managed by cast_out
+#            if issubclass(datatype, Array) and (apdu.propertyArrayIndex is not None):
+#                if apdu.propertyArrayIndex == 0:
+#                    value = apdu.propertyValue.cast_out(Unsigned)
+#                else:
+#                    value = apdu.propertyValue.cast_out(datatype.subtype)
+#            else:
+#                value = apdu.propertyValue.cast_out(datatype)
+#            log_debug(WhoisIAm,"    - value: %r", value)
+#                
+#            if isinstance(apdu, IAmRequest):
+#                # build a key from the source, just use the instance number
+#                key = (str(apdu.pduSource),
+#                       apdu.iAmDeviceIdentifier[1],)
+#                # count the times this has been received
+#                self.i_am_counter[key] += 1
+#    
+
+    
+    #--------------------------------------------------------------------------
 
     '''
     @property
@@ -352,7 +423,7 @@ class BACnet():
             raise IOError()
 
 
-    def _readMultiple(self, oref, props=None):
+    def _readMultiple(self, args):
         """ Build a ReadPropertyMultiple request, wait for the answer and return the values
 
         :param args: String with <addr> ( <type> <inst> ( <prop> [ <indx> ] )... )...
@@ -372,19 +443,24 @@ class BACnet():
                 'Present_Value': 23.5,
                 ... }
         """
-        print('readMultiple({},{})'.format(oref,props))
+        print('readMultiple({})'.format(args))
 
-        [(d,t,i)]= re.findall('(\d+).(\D+)(\d+)',oref)
-        #d= addr lookup(d)
-        #query= ['192.168.87.48:47808','analogInput',1,'presentValue units outOfService statusFlags']
-        query= ['192.168.87.48:47808','analogValue',1,'presentValue']
+        specs= []
+        for p in args[3]:
+            prop= PropertyReference(propertyIdentifier= p)
+            specs.append(ReadAccessSpecification(
+                            objectIdentifier=(args[1],args[2]),
+                            listOfPropertyReferences= [prop] ))
+            
+        request = ReadPropertyMultipleRequest(listOfReadAccessSpecs=specs)
+        request.pduDestination = Address(args[0])
 
         try:
-            iocb = IOCB(self.build_rpm_request(query))              # build an ReadPropertyMultiple request
-            self.this_application.request_io(iocb)                  # pass to the BACnet stack
+            iocb = IOCB(request)                               # build an ReadPropertyMultiple request
+            self.this_application.request_io(iocb)             # pass to the BACnet stack
 
         except Exception as e:
-            LOG.exception("exception: %r", e)                       # construction error
+            LOG.exception("exception: %r", e)                  # construction error
 
 
         iocb.wait()             # Wait for BACnet response
@@ -397,9 +473,12 @@ class BACnet():
                 return
 
             # loop through the results
-            values= []
+            dic= {}
             for result in apdu.listOfReadAccessResults:
                 objectIdentifier = result.objectIdentifier
+                dic['Object_Identifier']= '{}{}'.format(
+                     Obj_reverse[objectIdentifier[0]], objectIdentifier[1])
+                dic['Object_Type']= objectIdentifier[0]
 
                 # now come the property values per object
                 for element in result.listOfResults:
@@ -429,247 +508,11 @@ class BACnet():
                                 value = propertyValue.cast_out(datatype.subtype)
                         else:
                             value = propertyValue.cast_out(datatype)
-                        print('\tvalue= {}'.format(value))
-
-                        values.append(value)
-
-            return values
-                    
-
-        if iocb.ioError:        # unsuccessful: error/reject/abort
-            raise IOError()
-
-                
-    def build_rpm_request(self, args):
-        props= []
-        specs= []
-        #query= ['192.168.87.48:47808','analogValue',1,'presentValue']
-        props.append(PropertyReference(propertyIdentifier=args[3]))
-
-        spec = ReadAccessSpecification(
-            objectIdentifier=(args[1],args[2]),listOfPropertyReferences=props)
-        specs.append(spec)
-
-        request = ReadPropertyMultipleRequest(listOfReadAccessSpecs=specs)
-        request.pduDestination = Address(args[0])
-        LOG.debug('RPM:request: ', request)
-
-        return request
-
-        #------------------
-        
-        i = 0
-        addr = args[i]
-        i += 1
-
-        read_access_spec_list = []
-        while i < len(args):
-            obj_type = args[i]
-            i += 1
-
-            if obj_type.isdigit():
-                obj_type = int(obj_type)
-            elif not get_object_class(obj_type):
-                raise ValueError("unknown object type")
-
-            obj_inst = int(args[i])
-            i += 1
-
-            prop_reference_list = []
-            while i < len(args):
-                prop_id = args[i]
-                if prop_id not in PropertyIdentifier.enumerations:
-                    break
-
-                i += 1
-                if prop_id in ('all', 'required', 'optional'):
-                    pass
-                else:
-                    datatype = get_datatype(obj_type, prop_id)
-                    if not datatype:
-                        raise ValueError(
-                            "invalid property for object type : %s | %s" %
-                            (obj_type, prop_id))
-
-                # build a property reference
-                prop_reference = PropertyReference(propertyIdentifier=prop_id)
-
-                # check for an array index
-                if (i < len(args)) and args[i].isdigit():
-                    prop_reference.propertyArrayIndex = int(args[i])
-                    i += 1
-
-                prop_reference_list.append(prop_reference)
-
-            if not prop_reference_list:
-                raise ValueError("provide at least one property")
-
-            # build a read access specification
-            read_access_spec = ReadAccessSpecification(
-                objectIdentifier=(obj_type, obj_inst),
-                listOfPropertyReferences=prop_reference_list )
-
-            read_access_spec_list.append(read_access_spec)
-
-        if not read_access_spec_list:
-            raise RuntimeError(
-                "at least one read access specification required")
-
-        # build the request
-        request = ReadPropertyMultipleRequest(listOfReadAccessSpecs=read_access_spec_list )
-        request.pduDestination = Address(addr)
-        log_debug(ReadProperty, "    - request: %r", request)
-
-        return request
+                        print(propertyIdentifier,value)
+                        dic[propertyIdentifier]= value
+            return dic
 
 
-    def do_read(self, args):
-        """read <addr> ( <type> <inst> ( <prop> [ <indx> ] )... )..."""
-        args = args.split()
-        if _debug: ReadPropertyMultipleConsoleCmd._debug("do_read %r", args)
-
-        try:
-            i = 0
-            addr = args[i]
-            i += 1
-
-            read_access_spec_list = []
-            while i < len(args):
-                obj_type = args[i]
-                i += 1
-
-                if obj_type.isdigit():
-                    obj_type = int(obj_type)
-                elif not get_object_class(obj_type):
-                    raise ValueError("unknown object type")
-
-                obj_inst = int(args[i])
-                i += 1
-
-                prop_reference_list = []
-                while i < len(args):
-                    prop_id = args[i]
-                    if prop_id not in PropertyIdentifier.enumerations:
-                        break
-
-                    i += 1
-                    if prop_id in ('all', 'required', 'optional'):
-                        pass
-                    else:
-                        datatype = get_datatype(obj_type, prop_id)
-                        if not datatype:
-                            raise ValueError("invalid property for object type")
-
-                    # build a property reference
-                    prop_reference = PropertyReference(
-                        propertyIdentifier=prop_id,
-                        )
-
-                    # check for an array index
-                    if (i < len(args)) and args[i].isdigit():
-                        prop_reference.propertyArrayIndex = int(args[i])
-                        i += 1
-
-                    # add it to the list
-                    prop_reference_list.append(prop_reference)
-
-                # check for at least one property
-                if not prop_reference_list:
-                    raise ValueError("provide at least one property")
-
-                # build a read access specification
-                read_access_spec = ReadAccessSpecification(
-                    objectIdentifier=(obj_type, obj_inst),
-                    listOfPropertyReferences=prop_reference_list,
-                    )
-
-                # add it to the list
-                read_access_spec_list.append(read_access_spec)
-
-            # check for at least one
-            if not read_access_spec_list:
-                raise RuntimeError("at least one read access specification required")
-
-            # build the request
-            request = ReadPropertyMultipleRequest(
-                listOfReadAccessSpecs=read_access_spec_list,
-                )
-            request.pduDestination = Address(addr)
-            if _debug: ReadPropertyMultipleConsoleCmd._debug("    - request: %r", request)
-
-            # make an IOCB
-            iocb = IOCB(request)
-            if _debug: ReadPropertyMultipleConsoleCmd._debug("    - iocb: %r", iocb)
-
-            # give it to the application
-            this_application.request_io(iocb)
-
-            # wait for it to complete
-            iocb.wait()
-
-            # do something for success
-            if iocb.ioResponse:
-                apdu = iocb.ioResponse
-
-                # should be an ack
-                if not isinstance(apdu, ReadPropertyMultipleACK):
-                    if _debug: ReadPropertyMultipleConsoleCmd._debug("    - not an ack")
-                    return
-
-                # loop through the results
-                for result in apdu.listOfReadAccessResults:
-                    # here is the object identifier
-                    objectIdentifier = result.objectIdentifier
-                    if _debug: ReadPropertyMultipleConsoleCmd._debug("    - objectIdentifier: %r", objectIdentifier)
-
-                    # now come the property values per object
-                    for element in result.listOfResults:
-                        # get the property and array index
-                        propertyIdentifier = element.propertyIdentifier
-                        if _debug: ReadPropertyMultipleConsoleCmd._debug("    - propertyIdentifier: %r", propertyIdentifier)
-                        propertyArrayIndex = element.propertyArrayIndex
-                        if _debug: ReadPropertyMultipleConsoleCmd._debug("    - propertyArrayIndex: %r", propertyArrayIndex)
-
-                        # here is the read result
-                        readResult = element.readResult
-
-                        sys.stdout.write(propertyIdentifier)
-                        if propertyArrayIndex is not None:
-                            sys.stdout.write("[" + str(propertyArrayIndex) + "]")
-
-                        # check for an error
-                        if readResult.propertyAccessError is not None:
-                            sys.stdout.write(" ! " + str(readResult.propertyAccessError) + '\n')
-
-                        else:
-                            # here is the value
-                            propertyValue = readResult.propertyValue
-
-                            # find the datatype
-                            datatype = get_datatype(objectIdentifier[0], propertyIdentifier)
-                            if _debug: ReadPropertyMultipleConsoleCmd._debug("    - datatype: %r", datatype)
-                            if not datatype:
-                                raise TypeError("unknown datatype")
-
-                            # special case for array parts, others are managed by cast_out
-                            if issubclass(datatype, Array) and (propertyArrayIndex is not None):
-                                if propertyArrayIndex == 0:
-                                    value = propertyValue.cast_out(Unsigned)
-                                else:
-                                    value = propertyValue.cast_out(datatype.subtype)
-                            else:
-                                value = propertyValue.cast_out(datatype)
-                            if _debug: ReadPropertyMultipleConsoleCmd._debug("    - value: %r", value)
-
-                            sys.stdout.write(" = " + str(value) + '\n')
-                        sys.stdout.flush()
-
-            # do something for error/reject/abort
-            if iocb.ioError:
-                sys.stdout.write(str(iocb.ioError) + '\n')
-
-        except Exception as error:
-            ReadPropertyMultipleConsoleCmd._exception("exception: %r", error)
     def do_read(self, args):
         """read <addr> ( <type> <inst> ( <prop> [ <indx> ] )... )..."""
         args = args.split()
@@ -848,3 +691,9 @@ def get_hostIP():
                 break 
     
     return str(ip)              # IP Address/subnet
+
+
+# syntantic sugar
+def connect():
+    return BACnet()
+    print('connected')
