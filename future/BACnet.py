@@ -122,21 +122,33 @@ from bacpypes.object import get_object_class, get_datatype
 #------------------------------------------------------------------------------
 
 Obj_map= {
+    'DEV': 'device',
     'AI': 'analogInput',
     'AO': 'analogOutput',
     'AV': 'analogValue',
     'BI': 'binaryInput',
     'BO': 'binaryOutput',
     'BV': 'binaryValue',
+    'MI': 'multiStateInput',
+    'MO': 'multiStateOutput',
+    'MV': 'multiStateValue',
+    'SCH': 'schedule',
+    'ACC': 'accumulator'
     }
 
 Obj_reverse= {
+    'device': 'DEV',
     'analogInput': 'AI',
     'analogOutput': 'AO',
     'analogValue': 'AV',
     'binaryInput': 'BI',
     'binaryOutput': 'BO',
     'binaryValue': 'BV',
+    'multiStateInput': 'MI',
+    'multiStateOutput': 'MO',
+    'multiStateValue': 'MV',
+    'schedule': 'SCH',
+    'accumulator': 'ACC' 
     }
 
 Dev_map= {
@@ -262,6 +274,19 @@ class BACnet(BIPSimpleApplication):
             return value
         else:
             values= self._readMultiple(query)
+            
+            # Hack
+            if values['objectList']:
+                lst= []
+                for obj in values['objectList']:
+                    try:
+                        l= '{}{}'.format(Obj_reverse[obj[0]], obj[1])
+                        lst.append(l)
+                    except:
+                        #l= 'UNK{}'.format(obj[1])
+                        pass
+                values['objectList']= lst
+            
             return values
 
 
@@ -277,7 +302,8 @@ class BACnet(BIPSimpleApplication):
         print("do_WhoIsRequest %r", apdu)
 
         key = (str(apdu.pduSource),apdu.deviceInstanceRangeLowLimit,apdu.deviceInstanceRangeHighLimit )
-
+        print('WhoIs: ',key)
+        
         # continue with the default implementation
         BIPSimpleApplication.do_WhoIsRequest(self, apdu)
 
@@ -312,7 +338,7 @@ class BACnet(BIPSimpleApplication):
 
         iocb = IOCB(request)                            # make an IOCB
         self.this_application.request_io(iocb)          # pass to the BACnet stack
-        '''
+
         iocb.wait()                                     # Wait for BACnet response
 
         if iocb.ioResponse:     # successful response
@@ -351,7 +377,12 @@ class BACnet(BIPSimpleApplication):
 #                # count the times this has been received
 #                self.i_am_counter[key] += 1
 #    
+        '''
 
+        if iocb.ioError:        # unsuccessful: error/reject/abort
+            pass
+
+        return dic
     
     #--------------------------------------------------------------------------
 
