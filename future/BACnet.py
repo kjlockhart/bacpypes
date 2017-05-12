@@ -88,6 +88,7 @@ import ipaddress
 import sys
 from threading import Thread
 import re
+import time
 
 import logging
 LOG = logging.getLogger('standard')
@@ -96,8 +97,7 @@ LOG = logging.getLogger('standard')
 #--- 3rd party modules ---
 
 #--- this application's modules ---
-from bacpypes.core import run,stop
-from bacpypes.core import enable_sleeping
+import bacpypes.core
 
 #from bacpypes.primitivedata import CharacterString
 from bacpypes.constructeddata import Array
@@ -162,106 +162,109 @@ Dev_map= {
 
 #------------------------------------------------------------------------------
 
-print('BACnet loaded')
+class BACStack(BIPSimpleApplication):
+    ''' bacpypes extensions.
+    1. Learn about the BACnet devices visible on our BACnet network(s).
+       Use the information we learn (status, routing connections, ...) to minimize 
+       our network footprint
+    '''  
+    def __init__(self, device, address):
+        print('BACStack init')
+        BIPSimpleApplication.__init__(self, device, address)
 
 
-class BACnet(BIPSimpleApplication):
+    def do_WhoIsRequest(self, apdu):
+        ''' Learn about existing devices from their Who-Is requests.
+        '''
+        key = (str(apdu.pduSource),apdu.deviceInstanceRangeLowLimit,apdu.deviceInstanceRangeHighLimit )
+        print('WhoIs: ',key)
+        
+        BIPSimpleApplication.do_WhoIsRequest(self, apdu)    # continue with default processing
 
-    #class ReadWriteScript(BasicScript, WhoisIAm, ReadProperty, WriteProperty, Simulation):
-    """
-    Configure bacpypes to accept Read and Write requests.
-    Build LocalObject - with BACnet/IP
-    spin-up bacpypes in its own thread
-    
-    Its basic function is to start and stop the bacpypes stack.
-    Stopping the stack, frees the IP socket used for BACnet communications. 
-    No communications will occur if the stack is stopped.
-    
-    Bacpypes stack enables Whois and Iam functions, since this minimum is needed to be 
-    a BACnet device.  Other stack services can be enabled later (via class inheritance).
-     
-    """
+
+    def do_IAmRequest(self, apdu):
+        ''' Learn about new devices from their I-Am announcements.
+        '''
+        src= apdu.pduSource
+        id= apdu.iAmDeviceIdentifier[1]
+        maxlen= apdu.maxAPDULengthAccepted
+        seg= apdu.segmentationSupported
+        vendor= apdu.vendorID 
+        
+        key = (str(apdu.pduSource), apdu.iAmDeviceIdentifier[1])
+        i_am[key] += 1
+
+        print('{} IAm({})- vendor={} maxlen={},{} '.format(src,id,vendor,maxlen,seg))
+        BIPSimpleApplication.do_IAmRequest(self, apdu)      # continue with default processing
+
+
+#------------------------------------------------------------------------------
+
+class Stack(Thread):
+    ''' Wrap bacpypes into its own thread.  Configure as a simple device.  
+        Hide as much of its complexity as possible. Expose only a simple 
+        intuitive interface.
+        
+        TODO: allow settings override from a JSON ini file.
+    '''
     def __init__(self):
         print('init')
+        Thread.__init__(self)
+        self.name= 'BACnet'
 
-
-        self.response = None
-        self._started = False
-        self._stopped = False
-
-        """
-        Define the local device, including services supported.
-        Once defined, start the BACnet stack in its own thread.
-        """
-        self.devId = 4000000    # (3056177 + int(random.uniform(0, 1000)))
+        self.devId = 4000000
         self.ip_addr= get_hostIP() 
 
         self.systemStatus = DeviceStatus(1)
         
         print('Create our Local Device')
-        try:
-            self.this_device = LocalDeviceObject(
-                objectIdentifier= self.devId,
-                objectName= 'BACnet bacpypes',
-                vendorIdentifier= 574,
-                vendorName= 'CopperTree Analytics',
-                modelName= 'BACnet library',
-                description= '',
-                firmwareRevision= '0.15',
-                applicationSoftwareVersion= '1.0',
-                systemStatus= self.systemStatus,
-                #maxApduLengthAccepted=int(self.maxAPDULengthAccepted),
-                #segmentationSupported=self.segmentationSupported,
-                protocolVersion=1,
-                protocolRevision=14,
-                #protocolObjectTypesSupported=
-                databaseRevision= 0 )
+        self.this_device = LocalDeviceObject(
+            objectIdentifier= self.devId,
+            objectName= 'BACnet bacpypes',
+            vendorIdentifier= 574,
+            vendorName= 'CopperTree Analytics',
+            modelName= 'BACnet library',
+            description= '',
+            firmwareRevision= '0.15',
+            applicationSoftwareVersion= '1.0',
+            systemStatus= self.systemStatus,
+            #maxApduLengthAccepted=int(self.maxAPDULengthAccepted),
+            #segmentationSupported=self.segmentationSupported,
+            protocolVersion=1,
+            protocolRevision=14,
+            #protocolObjectTypesSupported=
+            databaseRevision= 0 )
 
-            '''
-            # State the BACnet services we support
-            pss = ServicesSupported()
-            pss['whoIs'] = 1
-            pss['iAm'] = 1
-            pss['readProperty'] = 1
-            pss['writeProperty'] = 1
-            pss['readPropertyMultiple'] = 1
-            self.this_device.protocolServicesSupported = pss.value
-            '''
-            
-            self.this_application = BIPSimpleApplication(self.this_device, self.ip_addr)
+        '''
+        # State the BACnet services we support
+        pss = ServicesSupported()
+        pss['whoIs'] = 1
+        pss['iAm'] = 1
+        pss['readProperty'] = 1
+        pss['writeProperty'] = 1
+        pss['readPropertyMultiple'] = 1
+        self.this_device.protocolServicesSupported = pss.value
+        '''
+        self.this_application= BACStack(self.this_device, self.ip_addr)
 
-            services_supported = self.this_application.get_services_supported()
-            self.this_device.protocolServicesSupported = services_supported.value
-
-            self._initialized = True
-            self._startAppThread()
-
-        except Exception as error:
-            print("bacpypes - startup failure: %s", error)
-            raise
+        services_supported = self.this_application.get_services_supported()
+        self.this_device.protocolServicesSupported = services_supported.value
 
 
-    def _startAppThread(self):
-        """
-        Starts the BACnet stack in its own thread so requests can be processed.
-        """
-        print('Starting bacpypes thread...')
-        enable_sleeping(0.0005)
-        self.t = Thread(target=run, name='bacnet', daemon = True)
-        #self.t = Thread(target=start_bacpypes, kwargs={'sigterm': None,'sigusr1': None}, daemon = True)
-        self.t.start()
-        self._started = True
-        print('BACnet started')
+    def run(self):
+        bacpypes.core.enable_sleeping()
+        bacpypes.core.run()
         
     
-
     def read(self,oref,props='presentValue'):
+        ''' BACnet read
+        '''
         print('read',oref,props)
         
         [(devId,t,i)]= re.findall('(\d+).(\D+)(\d+)',oref)
 
         if devId not in Dev_map:
-            dic= self.send_whois(devId)
+            dic= self.whois(devId)
             Dev_map[devId]= dic
         
         dstAddr= Dev_map[devId]
@@ -291,42 +294,15 @@ class BACnet(BIPSimpleApplication):
 
 
     def write(self,oref):
+        ''' BACnet write
+        '''
         print('write',oref)
         pass
 
 
     #--------------------------------------------------------------------------
 
-    def do_WhoIsRequest(self, apdu):
-        """Respond to a Who-Is request."""
-        print("do_WhoIsRequest %r", apdu)
-
-        key = (str(apdu.pduSource),apdu.deviceInstanceRangeLowLimit,apdu.deviceInstanceRangeHighLimit )
-        print('WhoIs: ',key)
-        
-        # continue with the default implementation
-        BIPSimpleApplication.do_WhoIsRequest(self, apdu)
-
-
-    def do_IAmRequest(self, apdu):
-        """Given an I-Am request, cache it."""
-        src= apdu.pduSource
-        id= apdu.iAmDeviceIdentifier[1]
-        maxlen= apdu.maxAPDULengthAccepted
-        seg= apdu.segmentationSupported
-        vendor= apdu.vendorID 
-        
-        key = (str(apdu.pduSource), apdu.iAmDeviceIdentifier[1])
-        i_am[key] += 1
-
-        print('{} IAm({})- vendor={} maxlen={},{} '.format(src,id,vendor,maxlen,seg))
-        BIPSimpleApplication.do_IAmRequest(self, apdu)      # continue with default processing
-
-
-
-    #--------------------------------------------------------------------------
-
-    def send_whois(self, deviceId):
+    def whois(self, deviceId):
         ''' Find the network address of the device with the given Device Identifier.
             Broadcast this request to the entire BACnet internetwork.
         '''
@@ -359,31 +335,11 @@ class BACnet(BIPSimpleApplication):
                 'segSupported': False,
                 'vendorId': 1
                 }
-        '''
-#            # special case for array parts, others are managed by cast_out
-#            if issubclass(datatype, Array) and (apdu.propertyArrayIndex is not None):
-#                if apdu.propertyArrayIndex == 0:
-#                    value = apdu.propertyValue.cast_out(Unsigned)
-#                else:
-#                    value = apdu.propertyValue.cast_out(datatype.subtype)
-#            else:
-#                value = apdu.propertyValue.cast_out(datatype)
-#            log_debug(WhoisIAm,"    - value: %r", value)
-#                
-#            if isinstance(apdu, IAmRequest):
-#                # build a key from the source, just use the instance number
-#                key = (str(apdu.pduSource),
-#                       apdu.iAmDeviceIdentifier[1],)
-#                # count the times this has been received
-#                self.i_am_counter[key] += 1
-#    
-        '''
+            return dic
 
         if iocb.ioError:        # unsuccessful: error/reject/abort
             pass
 
-        return dic
-    
     #--------------------------------------------------------------------------
 
     '''
@@ -451,6 +407,7 @@ class BACnet(BIPSimpleApplication):
             return value
 
         if iocb.ioError:        # unsuccessful: error/reject/abort
+            print('BACnet error: ', iocb.ioError)
             raise IOError()
 
 
@@ -543,155 +500,9 @@ class BACnet(BIPSimpleApplication):
                         dic[propertyIdentifier]= value
             return dic
 
-
-    def do_read(self, args):
-        """read <addr> ( <type> <inst> ( <prop> [ <indx> ] )... )..."""
-        args = args.split()
-        if _debug: ReadPropertyMultipleConsoleCmd._debug("do_read %r", args)
-
-        try:
-            i = 0
-            addr = args[i]
-            i += 1
-
-            read_access_spec_list = []
-            while i < len(args):
-                obj_type = args[i]
-                i += 1
-
-                if obj_type.isdigit():
-                    obj_type = int(obj_type)
-                elif not get_object_class(obj_type):
-                    raise ValueError("unknown object type")
-
-                obj_inst = int(args[i])
-                i += 1
-
-                prop_reference_list = []
-                while i < len(args):
-                    prop_id = args[i]
-                    if prop_id not in PropertyIdentifier.enumerations:
-                        break
-
-                    i += 1
-                    if prop_id in ('all', 'required', 'optional'):
-                        pass
-                    else:
-                        datatype = get_datatype(obj_type, prop_id)
-                        if not datatype:
-                            raise ValueError("invalid property for object type")
-
-                    # build a property reference
-                    prop_reference = PropertyReference(
-                        propertyIdentifier=prop_id,
-                        )
-
-                    # check for an array index
-                    if (i < len(args)) and args[i].isdigit():
-                        prop_reference.propertyArrayIndex = int(args[i])
-                        i += 1
-
-                    # add it to the list
-                    prop_reference_list.append(prop_reference)
-
-                # check for at least one property
-                if not prop_reference_list:
-                    raise ValueError("provide at least one property")
-
-                # build a read access specification
-                read_access_spec = ReadAccessSpecification(
-                    objectIdentifier=(obj_type, obj_inst),
-                    listOfPropertyReferences=prop_reference_list,
-                    )
-
-                # add it to the list
-                read_access_spec_list.append(read_access_spec)
-
-            # check for at least one
-            if not read_access_spec_list:
-                raise RuntimeError("at least one read access specification required")
-
-            # build the request
-            request = ReadPropertyMultipleRequest(
-                listOfReadAccessSpecs=read_access_spec_list,
-                )
-            request.pduDestination = Address(addr)
-            if _debug: ReadPropertyMultipleConsoleCmd._debug("    - request: %r", request)
-
-            # make an IOCB
-            iocb = IOCB(request)
-            if _debug: ReadPropertyMultipleConsoleCmd._debug("    - iocb: %r", iocb)
-
-            # give it to the application
-            this_application.request_io(iocb)
-
-            # wait for it to complete
-            iocb.wait()
-
-            # do something for success
-            if iocb.ioResponse:
-                apdu = iocb.ioResponse
-
-                # should be an ack
-                if not isinstance(apdu, ReadPropertyMultipleACK):
-                    if _debug: ReadPropertyMultipleConsoleCmd._debug("    - not an ack")
-                    return
-
-                # loop through the results
-                for result in apdu.listOfReadAccessResults:
-                    # here is the object identifier
-                    objectIdentifier = result.objectIdentifier
-                    if _debug: ReadPropertyMultipleConsoleCmd._debug("    - objectIdentifier: %r", objectIdentifier)
-
-                    # now come the property values per object
-                    for element in result.listOfResults:
-                        # get the property and array index
-                        propertyIdentifier = element.propertyIdentifier
-                        if _debug: ReadPropertyMultipleConsoleCmd._debug("    - propertyIdentifier: %r", propertyIdentifier)
-                        propertyArrayIndex = element.propertyArrayIndex
-                        if _debug: ReadPropertyMultipleConsoleCmd._debug("    - propertyArrayIndex: %r", propertyArrayIndex)
-
-                        # here is the read result
-                        readResult = element.readResult
-
-                        sys.stdout.write(propertyIdentifier)
-                        if propertyArrayIndex is not None:
-                            sys.stdout.write("[" + str(propertyArrayIndex) + "]")
-
-                        # check for an error
-                        if readResult.propertyAccessError is not None:
-                            sys.stdout.write(" ! " + str(readResult.propertyAccessError) + '\n')
-
-                        else:
-                            # here is the value
-                            propertyValue = readResult.propertyValue
-
-                            # find the datatype
-                            datatype = get_datatype(objectIdentifier[0], propertyIdentifier)
-                            if _debug: ReadPropertyMultipleConsoleCmd._debug("    - datatype: %r", datatype)
-                            if not datatype:
-                                raise TypeError("unknown datatype")
-
-                            # special case for array parts, others are managed by cast_out
-                            if issubclass(datatype, Array) and (propertyArrayIndex is not None):
-                                if propertyArrayIndex == 0:
-                                    value = propertyValue.cast_out(Unsigned)
-                                else:
-                                    value = propertyValue.cast_out(datatype.subtype)
-                            else:
-                                value = propertyValue.cast_out(datatype)
-                            if _debug: ReadPropertyMultipleConsoleCmd._debug("    - value: %r", value)
-
-                            sys.stdout.write(" = " + str(value) + '\n')
-                        sys.stdout.flush()
-
-            # do something for error/reject/abort
-            if iocb.ioError:
-                sys.stdout.write(str(iocb.ioError) + '\n')
-
-        except Exception as error:
-            ReadPropertyMultipleConsoleCmd._exception("exception: %r", error)
-
+        if iocb.ioError:        # unsuccessful: error/reject/abort
+            print('BACnet error: ', iocb.ioError)
+            raise IOError()
 
 #------------------------------------------------------------------------------
 
@@ -724,7 +535,13 @@ def get_hostIP():
     return str(ip)              # IP Address/subnet
 
 
-# syntantic sugar
 def connect():
-    return BACnet()
-    print('connected')
+    ''' [syntantic sugar] Hide the complexity of stack configuration and 
+        start up behind a intuitive 'connect me to the network' call.
+    '''  
+    thread= Stack()
+    thread.daemon= True
+    thread.start()
+    print('stack started')
+    
+    return thread

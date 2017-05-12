@@ -64,10 +64,6 @@ Fixed trender:
 
 #------------------------------------------------------------------------------
 
-
-bacnet= BACnet.connect()
-
-
 if __name__ == '__main__':
     gbl.LOGGER.info('trender - starting')
 
@@ -79,13 +75,19 @@ if __name__ == '__main__':
     dbTrends  = dbMongo['ccTrends']['Latest']
     #gbl.LOGGER.info('Connected: {}'.format(config.get('connectionStrings')['mongodb']))
     gbl.LOGGER.info('Connected: mongodb')
-    
+
+
+    bacnet= BACnet.connect()
+    gbl.LOGGER.info('Connected: bacnet')
+
     ''' load user defined Poll list.
     '''
-    props= ['objectName','vendorName','modelName','objectList']
-    vals= bacnet.read('2300.DEV2300',props)
-    print(vals)
-    
+    try:
+        props= ['objectName','vendorName','modelName','objectList']
+        vals= bacnet.read('2300.DEV2300',props)
+        print(vals)
+    except:
+        pass
     
     while True:
         gbl.LOGGER.info('Scan start...')
@@ -108,7 +110,7 @@ if __name__ == '__main__':
                 > 30 min: [very bad] reduce Poll list (disable N last points). Complain??
         '''
         #nsec= 900 - duration
-        nsec= 5 - duration.total_seconds()
+        nsec= max(15 - duration.total_seconds(),0)
         gbl.LOGGER.info('sleeping ({} secs)'.format(nsec))
         time.sleep(nsec)
         
