@@ -16,12 +16,6 @@ bacnet= BACnet.connect()
 
 
 '''
-while True:
-    print('sleep')
-    time.sleep(1)
-'''    
-
-'''
 # Simple Objects
 #
 value= bacnet.read('2300.AV1')        # read Present_Value of Device 2300's Analog Value #1
@@ -29,10 +23,26 @@ value= bacnet.read('2300.AV1')        # read Present_Value of Device 2300's Anal
 flag = bacnet.read('2300.AV1','outOfService')     # read one specific property
 '''
 
-#properties= ['Out_Of_Service','High_Limit','Low_Limit']
-properties= ['outOfService','units','statusFlags']
+'''#properties= ['Out_Of_Service','High_Limit','Low_Limit']
+properties= ['presentValue','outOfService','units','statusFlags']
 values= bacnet.read('2300.AV1',properties)        # read specific properties
+print(values)
+'''
+p= ['objectName','vendorName','modelName','objectList']
+v= bacnet.read('2300.DEV2300',p)
+print(v)
 
+#for o in v['objectList']:
+#    print(o)
+    
+while True:
+    print('2300.AV28= ',bacnet.read('2300.AV28'))
+    time.sleep(5)
+    
+    
+
+print('1200.AI1=', bacnet.read('1200.AI1') )
+print('2000.AI2=', bacnet.read('2000.AI2'))
 
 #value= bacnet.read('1200.AO3')        # read Present_Value of Device 1200's Analog Output #3
 

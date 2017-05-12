@@ -48,6 +48,7 @@ class WhoIsIAmApplication(BIPSimpleApplication):
 
         # count the times this has been received
         who_is_counter[key] += 1
+        print('WhoIs: ',key)
 
         # continue with the default implementation
         BIPSimpleApplication.do_WhoIsRequest(self, apdu)
@@ -63,6 +64,7 @@ class WhoIsIAmApplication(BIPSimpleApplication):
 
         # count the times this has been received
         i_am_counter[key] += 1
+        print('IAm: ',key)
 
         # continue with the default implementation
         BIPSimpleApplication.do_IAmRequest(self, apdu)
