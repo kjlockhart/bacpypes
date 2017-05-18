@@ -70,6 +70,8 @@ if __name__ == '__main__':
     # Connect to MongoDB
     #dbMongo = pymongo.MongoClient(config.get('connectionStrings')['mongodb'])
     dbMongo = pymongo.MongoClient('mongodb://localhost')
+    dbWhoIs = dbMongo['ccConfig']['whois']
+    dbIAm   = dbMongo['ccConfig']['iam']
     dbDevices = dbMongo['ccDevices']['Latest']
     dbPoints  = dbMongo['ccPoints']['Latest']
     dbTrends  = dbMongo['ccTrends']['Latest']
@@ -114,4 +116,12 @@ if __name__ == '__main__':
         gbl.LOGGER.info('sleeping ({} secs)'.format(nsec))
         time.sleep(nsec)
         
+        # periodically flush raw_device cache to mongodb
+        for k,v in BACnet.raw_whois.items():
+            dbWhoIs.update({'_id': k}, {"$set": v}, upsert=True, multi=False, w=1)
+
+        # periodically flush raw_iam cache to mongodb
+        for k,v in BACnet.raw_iam.items():
+            dbIAm.update({'_id': k}, {"$set": v}, upsert=True, multi=False, w=1)
+    
     pass

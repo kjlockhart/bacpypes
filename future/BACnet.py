@@ -88,6 +88,7 @@ import ipaddress
 import sys
 from threading import Thread
 import re
+import datetime
 import time
 
 import logging
@@ -159,6 +160,9 @@ Dev_map= {
     '3000': '20002:30',
     }
 
+raw_whois= {}
+raw_iam= {}
+
 
 #------------------------------------------------------------------------------
 
@@ -179,6 +183,13 @@ class BACStack(BIPSimpleApplication):
         key = (str(apdu.pduSource),apdu.deviceInstanceRangeLowLimit,apdu.deviceInstanceRangeHighLimit )
         print('WhoIs: ',key)
         
+        src= str(apdu.pduSource)
+        lo= apdu.deviceInstanceRangeLowLimit
+        hi= apdu.deviceInstanceRangeHighLimit
+        
+        print('WhoIs: ',src,lo,hi)
+        raw_whois[src]= {'ts': datetime.datetime.now() }
+
         BIPSimpleApplication.do_WhoIsRequest(self, apdu)    # continue with default processing
 
 
