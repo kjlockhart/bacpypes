@@ -226,7 +226,7 @@ void Safer_Encrypt_Block(safer_block_t block_in,
     printf("\nEncrypt in=");
     printf("\n%u,%u,%u,%u, %u,%u,%u,%u",a,b,c,d,e,f,g,h);
     for(i=0; i<8; i++)
-      printf("%i, ",block_in[i]);
+      printf("%u, ",block_in[i]);
       
     a = block_in[0]; b = block_in[1]; c = block_in[2]; d = block_in[3];
     e = block_in[4]; f = block_in[5]; g = block_in[6]; h = block_in[7];
@@ -265,7 +265,7 @@ void Safer_Encrypt_Block(safer_block_t block_in,
 
     printf("\nEncrypt out=");
     for(i=0; i<8; i++)
-      printf("%i, ",block_out[i]);
+      printf("%u, ",block_out[i]);
       
     printf("\n");
   } /* Safer_Encrypt_Block */
@@ -283,7 +283,7 @@ void Safer_Decrypt_Block(safer_block_t  block_in,
 
     printf("\nDecrypt in=");
     for(i=0; i<8; i++)
-      printf("%i, ",block_in[i]);
+      printf("%x, ",block_in[i]);
       
     a = block_in[0]; b = block_in[1]; c = block_in[2]; d = block_in[3];
     e = block_in[4]; f = block_in[5]; g = block_in[6]; h = block_in[7];
@@ -293,24 +293,24 @@ void Safer_Decrypt_Block(safer_block_t  block_in,
     d ^= *--key; c -= *--key; b -= *--key; a ^= *--key;
     while (round--)
     {
-        printf("\nRound %d\n",round);
-        printf("\nE-%u,%u,%u,%u, %u,%u,%u,%u",a,b,c,d,e,f,g,h);
+        //printf("\nRound %d\n",round);
+        //printf("\nE-%u,%u,%u,%u, %u,%u,%u,%u",a,b,c,d,e,f,g,h);
         t = e; e = b; b = c; c = t; t = f; f = d; d = g; g = t;
-        printf("\nP3-%u,%u,%u,%u, %u,%u,%u,%u",a,b,c,d,e,f,g,h);
+        //printf("\nP3-%u,%u,%u,%u, %u,%u,%u,%u",a,b,c,d,e,f,g,h);
         IPHT(a, e); IPHT(b, f); IPHT(c, g); IPHT(d, h);
-        printf("\nP2-%u,%u,%u,%u, %u,%u,%u,%u",a,b,c,d,e,f,g,h);
+        //printf("\nP2-%u,%u,%u,%u, %u,%u,%u,%u",a,b,c,d,e,f,g,h);
         IPHT(a, c); IPHT(e, g); IPHT(b, d); IPHT(f, h);
-        printf("\nP1-%u,%u,%u,%u, %u,%u,%u,%u",a,b,c,d,e,f,g,h);
+        //printf("\nP1-%u,%u,%u,%u, %u,%u,%u,%u",a,b,c,d,e,f,g,h);
         IPHT(a, b); IPHT(c, d); IPHT(e, f); IPHT(g, h);
-        printf("\nC-%u,%u,%u,%u, %u,%u,%u,%u",a,b,c,d,e,f,g,h);
+        //printf("\nC-%u,%u,%u,%u, %u,%u,%u,%u",a,b,c,d,e,f,g,h);
         h -= *--key; g ^= *--key; f ^= *--key; e -= *--key;
         d -= *--key; c ^= *--key; b ^= *--key; a -= *--key;
-        printf("\nB-%u,%u,%u,%u, %u,%u,%u,%u",a,b,c,d,e,f,g,h);
+        //printf("\nB-%u,%u,%u,%u, %u,%u,%u,%u",a,b,c,d,e,f,g,h);
         h = LOG(h) ^ *--key; g = EXP(g) - *--key;
         f = EXP(f) - *--key; e = LOG(e) ^ *--key;
         d = LOG(d) ^ *--key; c = EXP(c) - *--key;
         b = EXP(b) - *--key; a = LOG(a) ^ *--key;
-        printf("\nA-%u,%u,%u,%u, %u,%u,%u,%u",a,b,c,d,e,f,g,h);
+        //printf("\nA-%u,%u,%u,%u, %u,%u,%u,%u",a,b,c,d,e,f,g,h);
     }
     block_out[0] = a & 0xFF; block_out[1] = b & 0xFF;
     block_out[2] = c & 0xFF; block_out[3] = d & 0xFF;
@@ -319,7 +319,7 @@ void Safer_Decrypt_Block(safer_block_t  block_in,
 
     printf("\nDecrypt out=");
     for(i=0; i<8; i++)
-      printf("%i, ",block_out[i]);
+      printf("%x, ",block_out[i]);
       
     printf("\n");
 } /* Safer_Decrypt_Block */
@@ -410,13 +410,15 @@ void _syResetFilter(
 int main(void)
 {
   safer_block_t inpBuf,outBuf,tmpBuf;
-
+  int i;
+  
 	printf("Safer SK-128 Encryption\n");
 	Safer_Init_Module();
 	
 	_syResetFilter("DeltaControlsInc.");
 	// encrypt data - 8 bytes at a time
 
+/*
   strcpy(inpBuf,"12345678");
   printf("\ninpBuf=%s",inpBuf);
   
@@ -429,7 +431,18 @@ int main(void)
     printf("\nsuccess");
   else
     printf("\nfailure");
+*/
     
+  // pkt[26]="\x86\xf0\xcc\x03\x28\x22\xb8\x59\xcf\xd8\xe6\x35\x18\x27\xb7\xfb\xf2\x7c\xcf\x5c\x3f\xd0\x4d\x33";
+  strncpy(inpBuf,"\x86\xf0\xcc\x03\x28\x22\xb8\x59",8);
+  Safer_Decrypt_Block(inpBuf, gisSaferKey, tmpBuf);
+
+  strncpy(inpBuf,"\xcf\xd8\xe6\x35\x18\x27\xb7\xfb",8);
+  Safer_Decrypt_Block(inpBuf, gisSaferKey, tmpBuf);
+
+  strncpy(inpBuf,"\xf2\x7c\xcf\x5c\x3f\xd0\x4d\x33",8);
+  Safer_Decrypt_Block(inpBuf, gisSaferKey, tmpBuf);
+
   printf("\nDone\n");
 }
 

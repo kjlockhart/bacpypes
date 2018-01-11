@@ -19,6 +19,9 @@ Note: Delta Controls uses this [obscure] encryption algorithm in its BBMD contro
  
 '''
 #--- standard Python modules ---
+import datetime
+import struct
+
 #--- 3rd party modules ---
 #--- this application's modules ---
 
@@ -148,8 +151,8 @@ def IPHT(x,y):
 
 
 def encrypt(inp):
-    # encrypts 8 bytes at a time
-    block_in= [ord(c) for c in inp]
+    # encrypt an 8 byte bytearray
+    block_in= list(inp)
     
     a = block_in[0]; b = block_in[1]; c = block_in[2]; d = block_in[3];
     e = block_in[4]; f = block_in[5]; g = block_in[6]; h = block_in[7];
@@ -179,15 +182,12 @@ def encrypt(inp):
     e ^= k[4]; f += k[5]; g += k[6]; h ^= k[7];
     print('*-',a,b,c,d,e,f,g,h)
     s= [a,b,c,d,e,f,g,h]
-    block_out= ''.join(chr(i&0xff) for i in s) 
-
-    print([ord(c) for c in block_out])
-    return block_out
+    return bytearray([n&0xff for n in s])
 
 
 def decrypt(inp):
-    # encrypts 8 bytes at a time
-    block_in= [ord(c) for c in inp]
+    # decrypt an 8 byte bytearray
+    block_in= list(inp)
 
     a = block_in[0]; b = block_in[1]; c = block_in[2]; d = block_in[3];
     e = block_in[4]; f = block_in[5]; g = block_in[6]; h = block_in[7];
@@ -216,11 +216,7 @@ def decrypt(inp):
         d= LOG(d)^k[3]; c= (EXP(c)-k[2])&0xff; b= (EXP(b)-k[1])&0xff; a= LOG(a)^k[0];
         print('A-',a,b,c,d,e,f,g,h)
 
-    s= [a,b,c,d,e,f,g,h]
-    block_out= ''.join(chr(i&0xff) for i in s) 
-
-    print([ord(c) for c in block_out])
-    return block_out
+    return bytearray([a,b,c,d,e,f,g,h])
 
 
 #-------------------------------------------------------------------------
@@ -229,10 +225,8 @@ if __name__ == '__main__':
     print("Safer SK-128 Encryption\n");
 
     # encrypt data - 8 bytes at a time
-    inpBuf= "12345678"
+    inpBuf= b"12345678"
     outBuf= encrypt(inpBuf)
-    #Encrypt in=49, 50, 51, 52, 53, 54, 55, 56, 
-    # Encrypt out=48, 227, 197, 55, 200, 79, 125, 76,
 
     print("outBuf=",outBuf);
     tmpBuf= decrypt(outBuf)
@@ -245,4 +239,90 @@ if __name__ == '__main__':
     else:
         print("failure")
 
+    # test 1:
+    inp= b'\x0c\x06\x2e\x09\x76\x01\x0a\x03'
+    out= b'\x86\xf0\xcc\x03\x28\x22\xb8\x59' 
+    tmp= encrypt(inp)
+    print(tmp == out)
+    tmp= decrypt(tmp) 
+    print(tmp == inp)
+
+    # test 2:
+    inp= b'\x3c\x00\x08\x00\x4c\x4f\x47\x49'
+    out= b'\xcf\xd8\xe6\x35\x18\x27\xb7\xfb'
+    tmp= encrypt(inp)
+    print(tmp == out)
+    tmp= decrypt(tmp) 
+    print(tmp == inp)
+
+    # test 3:    
+    inp= b'\x4e\x00\x00\x00\x12\x00\x00\x00'
+    out= b'\xf2\x7c\xcf\x5c\x3f\xd0\x4d\x33'
+    tmp= encrypt(inp)
+    print(tmp == out)
+    tmp= decrypt(tmp) 
+    print(tmp == inp)
+
+    
+    ''' Register-Foreign-Device
+            Src: 192.168.87.37 -> 96.1.47.121 (Booth), Port 47810
+            BVLC(81), Register-Foreign-Device(5), Len(0006), TTL(003c)
+        [81, 05, 00, 06, 00, 03]
+        
+        Delta Register-Foreign-Device
+    Data: 000844454c544100001a86f0cc032822b859cfd8e6351827...
+
+00:08:44:45:4c:54:41:00:00:1a:86:f0:cc:03:28:22:b8:59:cf:d8:e6:35:18:27:b7:fb:f2:7c:cf:5c:3f:d0:4d:33
+
+
+[81, fe, 00,26, 00,08,]
+    
+0000   00 08 44 45 4c 54 41 00 00 1a 86 f0 cc 03 28 22  ..DELTA.......("
+0010   b8 59 cf d8 e6 35 18 27 b7 fb f2 7c cf 5c 3f d0  .Y...5.'...|.\?.
+0020   4d 33                                            M3
+
+encrypt= 86 f0 cc 03 28 22  b8 59 cf d8 e6 35 18 27 b7 fb f2 7c cf 5c 3f d0 4d 33
+    '''
+        
+    out= decrypt(b'\x86\xf0\xcc\x03\x28\x22\xb8\x59')
+    print('Time: {}:{}:{}.{}  Date: {}-{}-{}-{}'.format(
+        out[0],out[1],out[2],out[3], out[4]+1900,out[5],out[6],out[7] )) 
+    
+    out= decrypt(b'\xcf\xd8\xe6\x35\x18\x27\xb7\xfb')
+    print('TTL: {} sec   len({}) Pwd:{}'.format(out[0], out[2], out[4:]))
+
+    out= decrypt(b'\xf2\x7c\xcf\x5c\x3f\xd0\x4d\x33')
+    print('{}'.format(out))
+
+
+    ''' build up a packet binary packet
+        pkt= {user}{encrypted payload}
+        user= <len+3>USER<0>
+        payload= <len+2>{time}{date}{password}
+        password= <len+3>PASSWORD<0>
+    '''
+    user= b'DELTA'
+    fmt= '>h{}sB'.format(len(user))
+    bin1= struct.pack(fmt,len(user)+3,user,0)
+
+    utc_now= datetime.datetime.utcnow()
+    tz_offset= -8
+    blt= utc_now + datetime.timedelta(hours=tz_offset)
+    ttl= 60
+    dt= struct.pack('BBBBBBBBh',
+             blt.hour,blt.minute,blt.second,blt.microsecond//10000,
+             blt.year-1900,blt.month,blt.day,blt.isoweekday(), ttl)
+    
+    pwd= b'LOGIN'
+    fmt= 'h{}sBBBBBBBB'.format(len(pwd))
+    bin2= struct.pack(fmt,len(pwd)+3,pwd,0,0,0,0,0,0,0,0)
+
+    payload= dt+bin2
+    ep= b''
+    for i in range(len(payload)//8):
+        out= encrypt(payload[i*0:8])
+        ep += out
+        
+    pkt= bin1 + struct.pack('>h',len(ep)+2) + ep
+    
     print("Done");
